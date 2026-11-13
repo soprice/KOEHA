@@ -55,8 +55,8 @@ explicit error. File input waits for queue space. Stop ends capture, flushes the
 last speech window, drains final recognition and finishes translation before the
 session becomes idle.
 
-Translations can finish out of order. Caption IDs preserve audio order in the UI,
-history and exports. A draft cannot overwrite a final caption. History writes happen
+Final translations run one at a time in submission order. Caption IDs preserve audio
+order in the UI, history and exports. A draft cannot overwrite a final caption. History writes happen
 before the UI notification, and a translation failure preserves the original text.
 The visible session cache is bounded; saved history retains the complete session.
 
