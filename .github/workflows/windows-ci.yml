@@ -1,0 +1,50 @@
+name: Windows CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Windows regression tests
+        shell: pwsh
+        run: |
+          uv sync --locked --extra dev --extra desktop --python 3.13
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency sync failed' }
+          uv run --no-sync python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+          uv run --no-sync python -m ruff check .
+          if ($LASTEXITCODE -ne 0) { throw 'Ruff failed' }
+      - name: Build and verify the pull request installer
+        shell: pwsh
+        run: |
+          uv run --no-sync python scripts/build_desktop.py
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
+          uv run --no-sync python scripts/check_desktop.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installer lifecycle check failed' }
+          $files = @('KOEHA-Setup.exe', 'KOEHA-Windows-x64.zip')
+          $files | ForEach-Object {
+            $hash = Get-FileHash -LiteralPath (Join-Path dist $_) -Algorithm SHA256
+            "$($hash.Hash.ToLowerInvariant())  $_"
+          } | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding ascii
+      - name: Upload pull request Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: koeha-pr-${{ github.event.pull_request.number }}-windows-x64
+          path: |
+            dist/KOEHA-Setup.exe
+            dist/KOEHA-Windows-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

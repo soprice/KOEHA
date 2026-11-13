@@ -1,0 +1,87 @@
+{
+  "audio_sha256": "496dbc43b289e1d0d0cb916df9737450bca56acd8aaca046a7a2472363b1be53",
+  "audio_seconds": 7.224,
+  "realtime": true,
+  "results": [
+    {
+      "model": "qwen3-asr",
+      "mode": "sentence",
+      "load_seconds": 2.353,
+      "elapsed_seconds": 7.257,
+      "previews": 6,
+      "finals": 1,
+      "characters": 35,
+      "passed": true
+    },
+    {
+      "model": "qwen3-asr",
+      "mode": "chunk",
+      "load_seconds": 2.353,
+      "elapsed_seconds": 7.254,
+      "previews": 0,
+      "finals": 2,
+      "characters": 36,
+      "passed": true
+    },
+    {
+      "model": "parakeet-ja",
+      "mode": "sentence",
+      "load_seconds": 17.286,
+      "elapsed_seconds": 7.256,
+      "previews": 6,
+      "finals": 1,
+      "characters": 35,
+      "passed": true
+    },
+    {
+      "model": "parakeet-ja",
+      "mode": "chunk",
+      "load_seconds": 17.286,
+      "elapsed_seconds": 7.297,
+      "previews": 0,
+      "finals": 2,
+      "characters": 37,
+      "passed": true
+    },
+    {
+      "model": "fun-asr",
+      "mode": "sentence",
+      "load_seconds": 6.819,
+      "elapsed_seconds": 8.198,
+      "previews": 5,
+      "finals": 1,
+      "characters": 36,
+      "passed": true
+    },
+    {
+      "model": "fun-asr",
+      "mode": "chunk",
+      "load_seconds": 6.819,
+      "elapsed_seconds": 7.441,
+      "previews": 0,
+      "finals": 2,
+      "characters": 35,
+      "passed": true
+    },
+    {
+      "model": "nemotron",
+      "mode": "sentence",
+      "load_seconds": 7.095,
+      "elapsed_seconds": 7.256,
+      "previews": 5,
+      "finals": 1,
+      "characters": 34,
+      "passed": true
+    },
+    {
+      "model": "nemotron",
+      "mode": "chunk",
+      "load_seconds": 7.095,
+      "elapsed_seconds": 7.253,
+      "previews": 0,
+      "finals": 2,
+      "characters": 33,
+      "passed": true
+    }
+  ]
+}

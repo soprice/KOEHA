@@ -1,0 +1,201 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the app version as the latest release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Resolve build version and upgrade baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a stable app version in pyproject.toml' }
+          $latest = gh api --method GET "repos/$env:GITHUB_REPOSITORY/releases" -f per_page=100 --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot list releases for the upgrade test' }
+          $baseline = $latest | Select-Object -First 1
+          if ($baseline -and $baseline -notmatch '^v\d+\.\d+\.\d+$') { throw 'Expected a stable release tag for the upgrade test' }
+          if ($baseline -and '${{ inputs.publish }}' -eq 'true' -and [version]$version -le [version]$baseline.Substring(1)) {
+            throw 'Publishing requires an app version newer than the latest release'
+          }
+          "RELEASE_VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE_TAG=v$version" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "UPGRADE_BASELINE=$baseline" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Validate and build Windows desktop installer
+        shell: pwsh
+        run: |
+          uv sync --locked --extra dev --extra desktop --python 3.13
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency sync failed' }
+          uv run --no-sync python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+          uv run --no-sync python -m ruff check .
+          if ($LASTEXITCODE -ne 0) { throw 'Ruff failed' }
+          uv run --no-sync python scripts/build_desktop.py
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
+          uv run --no-sync python scripts/check_desktop.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installer lifecycle check failed' }
+      - name: Test upgrade from the latest published installer
+        if: env.UPGRADE_BASELINE != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $old = Join-Path $env:RUNNER_TEMP 'koeha-baseline-installer'
+          $target = Join-Path $env:RUNNER_TEMP 'koeha-upgrade-target'
+          $data = Join-Path $env:RUNNER_TEMP 'koeha-upgrade-data'
+          New-Item -ItemType Directory -Force $old, $target, $data | Out-Null
+          gh release download $env:UPGRADE_BASELINE --pattern 'KOEHA-Setup.exe' --dir $old
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch published baseline installer' }
+          $env:KOEHA_DATA_DIR = $data
+          # GUI (WinExe) launch is asynchronous under PowerShell's call operator.
+          # Start-Process -Wait ensures the old installer has finished before upgrade.
+          $oldInstall = Start-Process -FilePath (Join-Path $old 'KOEHA-Setup.exe') -ArgumentList @('--silent', '--no-shortcuts', "--target=$target") -Wait -PassThru
+          if ($oldInstall.ExitCode -ne 0) { throw 'Baseline install failed' }
+          if (!(Test-Path (Join-Path $target 'KOEHA.exe')) -or !(Test-Path (Join-Path $target '_internal'))) { throw 'Baseline installer did not finish creating its files' }
+          New-Item -ItemType Directory -Force (Join-Path $data 'models') | Out-Null
+          'persist-upgrade-settings' | Set-Content (Join-Path $data 'settings.json')
+          'persist-upgrade-model' | Set-Content (Join-Path $data 'models\preserve.txt')
+          'user-owned-file' | Set-Content (Join-Path $target 'personal.txt')
+          $newInstall = Start-Process -FilePath (Resolve-Path './dist/KOEHA-Setup.exe').Path -ArgumentList @('--silent', '--no-shortcuts', "--target=$target") -Wait -PassThru
+          if ($newInstall.ExitCode -ne 0) { throw 'New installer upgrade failed' }
+          if (!(Test-Path (Join-Path $target 'KOEHA.exe'))) { throw 'Upgraded executable missing' }
+          if (!(Test-Path (Join-Path $target 'THIRD_PARTY_NOTICES.md'))) { throw 'Bundled library notices missing' }
+          if (Get-ChildItem -LiteralPath (Join-Path $target '_internal/PySide6') -Recurse -Filter '*virtualkeyboard*') {
+            throw 'Upgrade retained files from Qt Virtual Keyboard'
+          }
+          if ((Get-Content (Join-Path $data 'settings.json') -Raw).Trim() -ne 'persist-upgrade-settings') { throw 'Settings overwritten' }
+          if ((Get-Content (Join-Path $data 'models\preserve.txt') -Raw).Trim() -ne 'persist-upgrade-model') { throw 'Model data overwritten' }
+          if ((Get-Content (Join-Path $target 'personal.txt') -Raw).Trim() -ne 'user-owned-file') { throw 'Personal install file overwritten' }
+          # --no-shortcuts intentionally also skips registering the per-user uninstaller.
+          # Compare installed application bytes with the freshly built bundle instead.
+          $installedHash = (Get-FileHash (Join-Path $target 'KOEHA.exe') -Algorithm SHA256).Hash
+          $builtHash = (Get-FileHash './dist/KOEHA/KOEHA.exe' -Algorithm SHA256).Hash
+          if ($installedHash -ne $builtHash) { throw 'Upgrade did not install the newly built application executable' }
+          if (!(Test-Path (Join-Path $target 'Uninstall-KOEHA.exe'))) { throw 'Upgrade uninstaller missing' }
+          $uninstall = Start-Process -FilePath (Join-Path $target 'Uninstall-KOEHA.exe') -ArgumentList @('--silent', '--no-shortcuts', "--target=$target") -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw 'Upgrade lifecycle cleanup failed' }
+          if (!(Test-Path (Join-Path $data 'settings.json'))) { throw 'Uninstall removed persistent settings' }
+          Write-Output "Upgrade from $env:UPGRADE_BASELINE to $env:RELEASE_TAG preserved settings, models and user-owned files."
+      - name: Collect corresponding sources for bundled libraries
+        shell: pwsh
+        run: uv run --no-sync python scripts/collect_release_sources.py
+      - name: Verify deliverables and produce SHA-256 checksums
+        shell: pwsh
+        run: |
+          $names = @('KOEHA-Setup.exe', 'KOEHA-Windows-x64.zip', 'KOEHA-Third-Party-Source.zip')
+          $lines = @()
+          foreach ($name in $names) {
+            $path = Join-Path dist $name
+            if (!(Test-Path -LiteralPath $path)) { throw "Missing artifact: $name" }
+            if ((Get-Item -LiteralPath $path).Length -lt 1000000) { throw "Suspiciously small artifact: $name" }
+            $lines += "$((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant())  $name"
+          }
+          if (Test-Path dist/KOEHA-Setup-stub.exe) { throw 'Stub installer must not ship' }
+          $fileVersion = (Get-Item -LiteralPath dist/KOEHA-Setup.exe).VersionInfo.FileVersion
+          if ($fileVersion -ne "$env:RELEASE_VERSION.0") { throw "Incorrect installer version: $fileVersion" }
+          $lines | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding ascii
+          $signature = (Get-AuthenticodeSignature -LiteralPath dist/KOEHA-Setup.exe).Status.ToString()
+          "KOEHA-Setup.exe Authenticode status: $signature" | Set-Content -LiteralPath dist/signature-status.txt
+          Get-Content dist/SHA256SUMS.txt
+          Get-Content dist/signature-status.txt
+      - name: Archive build artifacts for recovery
+        uses: actions/upload-artifact@v4
+        with:
+          name: koeha-${{ env.RELEASE_TAG }}-windows-x64
+          path: |
+            dist/KOEHA-Setup.exe
+            dist/KOEHA-Windows-x64.zip
+            dist/KOEHA-Third-Party-Source.zip
+            dist/SHA256SUMS.txt
+            dist/signature-status.txt
+          if-no-files-found: error
+          retention-days: 30
+      - name: Stage draft release assets
+        if: inputs.publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "docs/RELEASE_NOTES_$env:RELEASE_TAG.md"
+          if (!(Test-Path -LiteralPath $notes)) { throw "Release notes are missing: $notes" }
+          $assets = @('dist/KOEHA-Setup.exe', 'dist/KOEHA-Windows-x64.zip', 'dist/KOEHA-Third-Party-Source.zip',
+            'dist/SHA256SUMS.txt', 'dist/signature-status.txt')
+          $existing = gh release view $env:RELEASE_TAG --json isDraft --jq .isDraft 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($existing.Trim() -ne 'true') { throw 'Release already published; refusing to replace it' }
+            gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets --draft --title "KOEHA $env:RELEASE_TAG" --notes-file $notes --target $env:GITHUB_SHA
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release failed' }
+          $draft = gh release view $env:RELEASE_TAG --json isDraft --jq .isDraft
+          if ($LASTEXITCODE -ne 0 -or $draft.Trim() -ne 'true') { throw 'Release is not a draft; stopping' }
+          Write-Output 'Release staged; verifying assets before publication.'
+      - name: Verify staged assets and publish the release
+        if: inputs.publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $release = gh release view $env:RELEASE_TAG --json isDraft,tagName,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release.isDraft) { throw 'Expected a draft release' }
+          $staging = Join-Path $env:RUNNER_TEMP 'koeha-staged'
+          New-Item -ItemType Directory -Force $staging | Out-Null
+          $required = @('KOEHA-Setup.exe', 'KOEHA-Windows-x64.zip', 'KOEHA-Third-Party-Source.zip',
+            'SHA256SUMS.txt', 'signature-status.txt')
+          $patterns = foreach ($name in $required) { '--pattern'; $name }
+          gh release download $env:RELEASE_TAG @patterns --dir $staging
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download staged assets' }
+          foreach ($name in $required) {
+            if (!(Test-Path (Join-Path $staging $name))) { throw "Missing staged asset: $name" }
+          }
+          $checks = Get-Content (Join-Path $staging 'SHA256SUMS.txt')
+          if ($checks.Count -ne 3) { throw 'Expected exactly three SHA256SUMS entries' }
+          $seen = @{}
+          foreach ($line in $checks) {
+            if ($line -notmatch '^([a-fA-F0-9]{64})\s{2}(KOEHA-Setup\.exe|KOEHA-Windows-x64\.zip|KOEHA-Third-Party-Source\.zip)$') { throw "Bad checksum line: $line" }
+            $expected = $Matches[1].ToLowerInvariant()
+            $name = $Matches[2]
+            if ($seen.ContainsKey($name)) { throw "Duplicate checksum entry: $name" }
+            $seen[$name] = $true
+            $actual = (Get-FileHash -LiteralPath (Join-Path $staging $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($expected -ne $actual) { throw "Staged checksum mismatch: $name" }
+          }
+          # GitHub may defer creation of a new tag until its draft release is published.
+          $targetCommit = gh release view $env:RELEASE_TAG --json targetCommitish --jq '.targetCommitish'
+          if ($LASTEXITCODE -ne 0 -or $targetCommit.Trim() -ne $env:GITHUB_SHA) { throw 'Draft release target is not the tested commit' }
+          Get-Content (Join-Path $staging 'signature-status.txt')
+          gh release edit $env:RELEASE_TAG --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publish failed' }
+          $published = gh release view $env:RELEASE_TAG --json isDraft --jq '.isDraft'
+          if ($LASTEXITCODE -ne 0 -or $published.Trim() -ne 'false') { throw 'Published release verification failed' }
+          $tagCommit = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$env:RELEASE_TAG" --jq .object.sha
+          if ($LASTEXITCODE -ne 0 -or $tagCommit.Trim() -ne $env:GITHUB_SHA) { throw 'Published tag does not match the tested commit' }
+          Write-Output "KOEHA $env:RELEASE_TAG published after Windows build, upgrade and checksum verification."

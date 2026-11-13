@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="28" viewBox="0 0 480 28" role="img" aria-label="Windows 11 x64, Python 3.12–3.13, Local ASR, MIT license">
+  <title>KOEHA compatibility</title>
+  <g fill="#151a1e" stroke="#3b4652">
+    <rect x="0.5" y="0.5" width="131" height="27" rx="7"/>
+    <rect x="139.5" y="0.5" width="151" height="27" rx="7"/>
+    <rect x="298.5" y="0.5" width="99" height="27" rx="7"/>
+    <rect x="405.5" y="0.5" width="74" height="27" rx="7"/>
+  </g>
+  <g fill="#eef3fa" font-family="Segoe UI,Arial,sans-serif" font-size="12" text-anchor="middle">
+    <text x="66" y="18">Windows 11 x64</text>
+    <text x="215" y="18">Python 3.12–3.13</text>
+    <text x="348" y="18" fill="#a5e5c6">Local ASR</text>
+    <text x="443" y="18">MIT</text>
+  </g>
+</svg>

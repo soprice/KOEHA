@@ -1,0 +1,11 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "desktop_python": "3.13.0",
+  "workers": {
+    "nemo": "2.11.0+cu128 2.11.0+cu128 True",
+    "transformers": "2.11.0+cu128 2.11.0+cu128 True"
+  },
+  "unit_tests_passed": 19,
+  "wheel_isolated_install": true,
+  "silent_loopback_stop": true
+}
