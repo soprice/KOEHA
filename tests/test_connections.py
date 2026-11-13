@@ -63,20 +63,30 @@ def test_profiles_save_reopen_and_switch_from_live(studio, monkeypatch):
         assert editor.endpoint.text() == PROVIDERS[provider][1]
         editor.model.setEditText("chat-model")
         editor.api_key.setText(secret)
+        if provider == "lmstudio":
+            editor.temperature.setValue(0.2)
+            editor.top_p.setValue(0.9)
+        else:
+            editor.temperature.setValue(editor.temperature.minimum())
     active = editor.active_id
     editor.save_button.click()
     stored = Settings.load(studio.controller.root / "settings.json")
     assert len(stored.translation_profiles) == 3 and stored.translation_profile == active
     assert "profile:" + active not in credentials
     lm_profile = next(p for p in stored.translation_profiles if p.name == "Local LM")
+    ollama_profile = next(p for p in stored.translation_profiles if p.id == active)
+    assert (lm_profile.temperature, lm_profile.top_p) == (0.2, 0.9)
+    assert (ollama_profile.temperature, ollama_profile.top_p) == (None, None)
     assert credentials[lm_profile.credential_id] == "lm-secret"
     assert "lm-secret" not in (studio.controller.root / "settings.json").read_text()
     reopened = MainWindow(Controller())
     try:
         assert reopened.connections.active_id == active
+        assert reopened.connections.temperature.text() == "Server default"
         reopened.provider.setCurrentIndex(reopened.provider.findData(lm_profile.id))
         assert reopened.connections.api_key.text() == "lm-secret"
         assert reopened.endpoint.text() == PROVIDERS["lmstudio"][1]
+        assert (reopened.connections.temperature.value(), reopened.connections.top_p.value()) == (0.2, 0.9)
         assert reopened.save_settings()
         assert reopened.controller.settings.translation_profile == lm_profile.id
     finally:
@@ -179,10 +189,15 @@ def test_returning_to_profile_retries_a_failed_credential_read(app, monkeypatch)
         editor.close()
 
 
-@pytest.mark.parametrize("provider", ["lmstudio", "ollama"])
-def test_local_server_model_list_and_translation(provider, monkeypatch):
+@pytest.mark.parametrize("provider, sampling, expected", [
+    ("lmstudio", {}, {"temperature": 0}),
+    ("lmstudio", {"temperature": 0.2, "top_p": 0.9}, {"temperature": 0.2, "top_p": 0.9}),
+    ("ollama", {"temperature": None, "top_p": None}, {}),
+    ("custom", {"temperature": None, "top_p": 0}, {"top_p": 0}),
+])
+def test_local_server_model_list_and_translation(provider, sampling, expected, monkeypatch):
     url = PROVIDERS[provider][1]
-    profile = ConnectionProfile("local", provider, provider, url, "local-chat")
+    profile = ConnectionProfile("local", provider, provider, url, "local-chat", **sampling)
     requested_keys, requests = [], []
     monkeypatch.setattr("koeha.translation.translator.get_key", lambda key: requested_keys.append(key) or "")
     def respond(request):
@@ -192,6 +207,7 @@ def test_local_server_model_list_and_translation(provider, monkeypatch):
             return httpx.Response(200, json={"data": [{"id": "local-chat"}, {"id": "local-chat"}]})
         payload = json.loads(request.content)
         assert payload["model"] == "local-chat" and payload["messages"][-1]["content"] == "こんにちは"
+        assert {name: payload[name] for name in ("temperature", "top_p") if name in payload} == expected
         return httpx.Response(200, json={"choices": [{"message": {"content": "สวัสดี"}}]})
     with httpx.Client(transport=httpx.MockTransport(respond)) as client:
         assert list_models(url, client=client) == ["local-chat"]

@@ -157,6 +157,10 @@ own API key in Windows Credential Manager, including profiles sharing one URL;
 keys are never written to the settings JSON. Existing connection settings become
 the **Default** profile, and its existing key is carried over when you first save.
 
+Set **Temperature** and **Top P** in the connection profile. Lower either field to
+**Server default** to let the server choose its value. Saved changes apply when
+you start a new session.
+
 > [!NOTE]
 > **HTTP and HTTPS for translation**
 >
@@ -189,10 +193,11 @@ omits `{target_language}`, the selected output language is appended automaticall
 Scene context gives the model background for the dialogue. The glossary lists
 preferred translations for names and terms, one `original = translation` pair per line.
 Both are optional. KOEHA appends the selected profile's context and glossary to its
-system prompt and sends the result as the API's `system` message. Recognized
-dialogue is sent as a separate `user` message. Choose **Translation style** during
-a Live session to apply it to new translation requests. Requests already submitted
-finish with the style they started with.
+system prompt and sends the result as the API's `system` message. Each request
+sends up to four earlier finalized subtitles in the source language as reference.
+The final `user` message contains the subtitle to translate. Choose **Translation
+style** during a Live session to apply it to new translation requests. Requests
+already submitted finish with the style they started with.
 
 ## Caption appearance
 

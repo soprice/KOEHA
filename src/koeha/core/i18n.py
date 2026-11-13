@@ -111,6 +111,7 @@ THAI = {
         "โปรไฟล์เพลงและเสียงร้องใช้เกณฑ์ที่ตั้งไว้ล่วงหน้าและอาจตรวจจับเสียงเครื่องดนตรีด้วย",
     "Speech confidence": "ความมั่นใจว่าเป็นเสียงพูด",
     "Translation API base URL": "URL ของ API แปลภาษา",
+    "Server default": "ใช้ค่าเซิร์ฟเวอร์",
     "Translation API": "API แปลภาษา", "API connection profiles": "โปรไฟล์การเชื่อมต่อ API",
     "Connection profile": "โปรไฟล์การเชื่อมต่อ",
     "Saved profiles": "โปรไฟล์ที่บันทึก", "New profile": "สร้างโปรไฟล์", "Delete profile": "ลบโปรไฟล์",

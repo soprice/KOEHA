@@ -79,9 +79,10 @@ profiles. Their save action leaves connection drafts and credentials untouched.
 The translator resolves the selected profile at session creation, replaces
 the supported language placeholders, and appends the profile's scene context and glossary.
 Legacy settings with shared scene context and glossary copy those fields into each
-profile when loaded. Recognition receives the selected profile's scene context at
-session start.
-It sends the result as the system message and retains dialogue in user messages.
+profile when loaded. The translator sends the result as the system message and
+labels earlier source subtitles as reference. The final user message is the subtitle
+to translate. Whisper uses scene context as a recognition hint at session start.
+Qwen3 ASR receives audio and the selected recognition language.
 
 Model setup installs a matched CUDA Torch/torchaudio pair and the bundled inference
 dependency lock, then checks imports. NeMo uses Transformers 4.57.6 in its own

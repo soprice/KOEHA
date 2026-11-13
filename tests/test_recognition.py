@@ -3,6 +3,7 @@ import json
 import queue
 import threading
 
+import httpx
 import pytest
 
 from koeha.app.controller import Controller
@@ -115,6 +116,35 @@ def test_server_usage_reads_llama_token_counts_and_timings():
     assert usage == {"tokens": 21, "prompt_tokens": 180, "limit": LLAMA_MAX_TOKENS, "seconds": 0.5}
     assert Recognizer._server_usage({}) == {"tokens": None, "prompt_tokens": None, "limit": LLAMA_MAX_TOKENS}
     assert LLAMA_MAX_TOKENS == 512
+
+
+def test_qwen_asr_sends_audio_and_language_without_translation_scene_context(tmp_path, monkeypatch):
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "language Japanese<asr_text>歌う。"}}]})
+
+    def start_server(decoder, *_):
+        decoder.url = "http://127.0.0.1:1"
+        decoder.client.close()
+        decoder.client = httpx.Client(transport=httpx.MockTransport(respond))
+
+    monkeypatch.setattr("koeha.recognition.recognizer.is_ready", lambda *_: True)
+    monkeypatch.setattr(Recognizer, "_start_server", start_server)
+    scene = "This audio comes from Japanese VTuber and VSinger MEDA."
+    decoder = Recognizer(tmp_path, by_id("qwen3-asr"), "ja", scene)
+    try:
+        assert decoder.decode(bytes(64000)) == "歌う。"
+    finally:
+        decoder.close()
+
+    assert len(requests) == 2
+    for payload in requests:
+        audio, language = payload["messages"]
+        assert audio["role"] == "user" and audio["content"][0]["type"] == "input_audio"
+        assert language == {"role": "assistant", "content": "language Japanese<asr_text>"}
+        assert scene not in json.dumps(payload)
 
 
 def run_session(app, tmp_path, monkeypatch, device):

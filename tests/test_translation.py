@@ -6,6 +6,7 @@ import httpx
 
 from koeha.core.events import Caption
 from koeha.core.settings import Settings
+from koeha.translation.prompt_profiles import SUBTITLE_REQUEST_INSTRUCTION
 from koeha.translation.translator import Translator
 
 
@@ -62,7 +63,7 @@ def test_close_cancels_queued_translations_after_grace(monkeypatch):
     release.set()
 
 
-def test_live_style_switch_snapshots_requests_and_starts_fresh_context(monkeypatch):
+def test_live_style_switch_snapshots_requests(monkeypatch):
     monkeypatch.setattr("koeha.translation.translator.get_key", lambda _: "")
     release = threading.Event()
     old_started = threading.Event()
@@ -89,7 +90,7 @@ def test_live_style_switch_snapshots_requests_and_starts_fresh_context(monkeypat
     translator.client = httpx.Client(transport=httpx.MockTransport(respond))
     old_style = translator.system_prompt
     try:
-        translator.submit(Caption(1, 0, 1, "context", True))
+        translator.submit(Caption(1, 0, 1, "first subtitle", True))
         assert first_done.wait(3)
         translator.submit(Caption(2, 1, 2, "already submitted", True))
         assert old_started.wait(3)
@@ -98,10 +99,59 @@ def test_live_style_switch_snapshots_requests_and_starts_fresh_context(monkeypat
         release.set()
         translator.close()
     assert not errors and {caption.id for caption in output} == {1, 2, 3}
-    assert payloads["already submitted"][0]["content"] == old_style
-    assert payloads["already submitted"][1]["content"] == "context"
-    assert payloads["new request"] == [
-        {"role": "system", "content": "New style"},
-        {"role": "user", "content": "new request"},
-    ]
-    assert 2 not in translator.context
+    for subtitle, style, earlier in (
+        ("already submitted", old_style, ["first subtitle"]),
+        ("new request", "New style", ["first subtitle", "already submitted"]),
+    ):
+        assert payloads[subtitle] == [
+            {"role": "system", "content": style + "\n\n" + SUBTITLE_REQUEST_INSTRUCTION},
+            {"role": "user", "content": "Earlier source subtitles (reference only, oldest first):\n"
+             + json.dumps(earlier, ensure_ascii=False)},
+            {"role": "assistant", "content": "I will use these as reference only."},
+            {"role": "user", "content": subtitle},
+        ]
+
+
+def test_preview_and_final_requests_use_only_recent_final_source_as_reference(monkeypatch):
+    monkeypatch.setattr("koeha.translation.translator.get_key", lambda _: "")
+    preview_done = threading.Event()
+    requests, errors = {}, []
+
+    def on_caption(caption):
+        if not caption.final:
+            preview_done.set()
+
+    def respond(request):
+        messages = json.loads(request.content)["messages"]
+        requests[messages[-1]["content"]] = messages
+        return httpx.Response(200, json={"choices": [{"message": {"content": "คำแปลเก่า\nข้อความส่วนเกิน"}}]})
+
+    translator = Translator(Settings(target="th", translation_model="test"), on_caption, errors.append)
+    translator.client.close()
+    translator.client = httpx.Client(transport=httpx.MockTransport(respond))
+    try:
+        for id_ in range(1, 6):
+            translator.submit(Caption(id_, id_ - 1, id_, f"字幕{id_}。", True))
+        translator.submit(Caption(6, 5, 6, "次の", False))
+        assert preview_done.wait(3)
+        translator.submit(Caption(6, 5, 7, "次の字幕。", True))
+        translator.submit(Caption(7, 7, 8, "最後の字幕。", True))
+    finally:
+        translator.close()
+
+    assert not errors
+    system = {"role": "system", "content": translator.system_prompt + "\n\n" + SUBTITLE_REQUEST_INSTRUCTION}
+    assert requests["字幕1。"] == [system, {"role": "user", "content": "字幕1。"}]
+    recent_source = ["字幕2。", "字幕3。", "字幕4。", "字幕5。"]
+    for subtitle, earlier in (
+        ("次の", recent_source),
+        ("次の字幕。", recent_source),
+        ("最後の字幕。", recent_source[1:] + ["次の字幕。"]),
+    ):
+        assert requests[subtitle] == [
+            system,
+            {"role": "user", "content": "Earlier source subtitles (reference only, oldest first):\n"
+             + json.dumps(earlier, ensure_ascii=False)},
+            {"role": "assistant", "content": "I will use these as reference only."},
+            {"role": "user", "content": subtitle},
+        ]

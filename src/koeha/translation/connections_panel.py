@@ -4,9 +4,10 @@ import uuid
 from dataclasses import replace
 
 import httpx
-from PySide6.QtCore import QObject, QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QLocale, QObject, QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -53,6 +54,7 @@ class TranslationConnections(QWidget):
     profilesChanged = Signal()
     saveRequested = Signal()
     modelDiscoveryChanged = Signal(str, bool)
+    SERVER_DEFAULT = -0.01
 
     def __init__(self, settings):
         super().__init__()
@@ -115,6 +117,10 @@ class TranslationConnections(QWidget):
         model_row.addWidget(self.load_button)
         self.model.setAccessibleName(tr("Translation model"))
         form.addRow(tr("Translation model"), model_row)
+        self.temperature = self._sampling_field("Temperature", 2)
+        self.top_p = self._sampling_field("Top P", 1)
+        form.addRow(tr("Temperature"), self.temperature)
+        form.addRow(tr("Top P"), self.top_p)
         layout.addLayout(form)
         self.http_warning = QLabel(tr(HTTP_WARNING))
         self.http_warning.setWordWrap(True)
@@ -140,7 +146,21 @@ class TranslationConnections(QWidget):
         for widget in (self.name, self.endpoint, self.api_key):
             widget.textChanged.connect(self._edited)
         self.model.currentTextChanged.connect(self._edited)
+        self.temperature.valueChanged.connect(self._edited)
+        self.top_p.valueChanged.connect(self._edited)
         self.select_profile(settings.translation_profile or self.profiles[0].id)
+
+    def _sampling_field(self, title, maximum):
+        widget = QDoubleSpinBox()
+        widget.setObjectName("translationSampling")
+        widget.setLocale(QLocale.c())
+        widget.lineEdit().setTextMargins(8, 0, 0, 0)
+        widget.setDecimals(2)
+        widget.setRange(self.SERVER_DEFAULT, maximum)
+        widget.setSingleStep(0.01)
+        widget.setSpecialValueText(tr("Server default"))
+        widget.setAccessibleName(tr(title))
+        return widget
 
     def _stash(self):
         if not self.active_id:
@@ -150,6 +170,8 @@ class TranslationConnections(QWidget):
         profile.provider = self.provider.currentData()
         profile.url = self.endpoint.text().strip().rstrip("/")
         profile.model = self.model.currentText().strip()
+        profile.temperature = None if self.temperature.value() < 0 else self.temperature.value()
+        profile.top_p = None if self.top_p.value() < 0 else self.top_p.value()
 
     def _refresh(self):
         with QSignalBlocker(self.saved):
@@ -177,7 +199,7 @@ class TranslationConnections(QWidget):
             except Exception as error:
                 self._keys[profile_id] = ""
                 self._key_errors[profile_id] = str(error)
-        widgets = [self.name, self.provider, self.endpoint, self.model, self.api_key]
+        widgets = [self.name, self.provider, self.endpoint, self.model, self.api_key, self.temperature, self.top_p]
         blockers = [QSignalBlocker(widget) for widget in widgets]
         self.name.setText(profile.name)
         self.provider.setCurrentIndex(self.provider.findData(profile.provider))
@@ -186,6 +208,8 @@ class TranslationConnections(QWidget):
         self.model.addItems(self.model_ids)
         self.model.setEditText(profile.model)
         self.api_key.setText(self._keys[profile_id])
+        for widget, value in ((self.temperature, profile.temperature), (self.top_p, profile.top_p)):
+            widget.setValue(self.SERVER_DEFAULT if value is None else value)
         del blockers
         self._request_id += 1
         self._show_discovery()
