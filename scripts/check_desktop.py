@@ -60,11 +60,10 @@ def main():
         assert all(not dll.exists() for dll in retired_dlls)
         assert not any("virtualkeyboard" in path.name.lower() for path in (target / "_internal/PySide6").rglob("*"))
         subprocess.run([uninstaller, *options], env=env, check=True, timeout=120)
-        for _ in range(100):
-            if not uninstaller.exists():
-                break
+        deadline = time.monotonic() + 45
+        while uninstaller.exists() and time.monotonic() < deadline:
             time.sleep(0.1)
-        assert not uninstaller.exists()
+        assert not uninstaller.exists(), "The uninstaller did not finish removing its own executable"
         assert not (target / "KOEHA.exe").exists()
         assert not (target / "README.txt").exists()
         assert unrelated.read_text(encoding="utf-8") == "Keep this"

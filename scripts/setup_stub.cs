@@ -763,7 +763,17 @@ for ($path = $exe; $path; $path = [IO.Path]::GetDirectoryName($path)) {
     $item = Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
     if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { exit 1 }
 }
-Remove-Item -LiteralPath $exe -Force -ErrorAction Stop
+for ($attempt = 1; $attempt -le 30; $attempt++) {
+    try {
+        if (Test-Path -LiteralPath $exe) {
+            Remove-Item -LiteralPath $exe -Force -ErrorAction Stop
+        }
+        break
+    } catch {
+        if ($attempt -eq 30) { throw }
+        Start-Sleep -Seconds 1
+    }
+}
 try { [IO.Directory]::Delete([IO.Path]::GetDirectoryName($exe), $false) } catch {}";
             string powershell = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
             string arguments = "-NoProfile -NonInteractive -EncodedCommand " +
