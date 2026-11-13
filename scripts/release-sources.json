@@ -47,9 +47,9 @@
       "sha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1"
     },
     {
-      "name": "dav1d-1.5.4.tar.bz2",
-      "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.4/dav1d-1.5.4.tar.bz2",
-      "sha256": "2abfb0c89212e6e4733a54e0ae509ec00a5b845a6360946f918806e14aedb011"
+      "name": "dav1d-1.5.4.tar.xz",
+      "url": "https://download.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz",
+      "sha256": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5"
     },
     {
       "name": "SVT-AV1-v4.2.0.tar.bz2",
@@ -72,9 +72,9 @@
       "sha256": "5df7386911bc15fd1ca783132528748d219768ae4fc5f8e0b61184f041648092"
     },
     {
-      "name": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
-      "url": "https://code.videolan.org/videolan/x264/-/archive/b35605ace3ddf7c1a5d67a2eb553f034aef41d55/x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.bz2",
-      "sha256": "6eeb82934e69fd51e043bd8c5b0d152839638d1ce7aa4eea65a3fedcf83ff224"
+      "name": "x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz",
+      "url": "https://codeload.github.com/mirror/x264/tar.gz/b35605ace3ddf7c1a5d67a2eb553f034aef41d55",
+      "sha256": "cd71a7515b0e9a012e1ac9b1f8415bebcaf6fc97d4db32286642ac4c0fbe24f9"
     },
     {
       "name": "x265_4.3.tar.gz",
