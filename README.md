@@ -34,7 +34,7 @@
 
 | | What you can do |
 | :--- | :--- |
-| **Live transcription** | Capture Windows system playback or a microphone and recognize speech locally. |
+| **Live transcription** | Capture system playback, a running desktop application, or a microphone and recognize speech locally. |
 | **Two delivery modes** | See revisable text in Live Preview or output completed segments in Finalized Chunks. |
 | **Optional translation** | Save connection profiles for LM Studio, Ollama, or an OpenAI-compatible API. Choose an independent translation style and add scene context or a glossary. |
 | **Floating subtitles** | Customize fonts, original/translation colors, text outlines, and background borders in a movable overlay. |
@@ -90,7 +90,10 @@ and in the Live model selector.
 
 ### Start a session
 
-1. In **Live**, choose system audio or microphone, your audio device, and the spoken language.
+1. In **Live**, choose a capture source and spoken language. With **Application audio**,
+   choose a running desktop app in **Input** and use **Refresh apps** after opening new apps.
+   This captures audio from the app and its child processes, including audio from browser
+   tabs in that process tree. Application audio requires Windows build 20348 or later.
 2. Select **Live Preview** or **Finalized Chunks**. Adjust timing under **Settings → Recognition**.
 3. To translate, create a connection profile in **Settings → Translation API**. In **Live → Setup**, select the profile and target language, then click **Load models** to choose a model from that server. Choose a translation style below Setup.
 4. Click **Start Live**. Use **Floating captions** to open the overlay and **Sessions** to view saved transcripts.

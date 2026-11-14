@@ -20,6 +20,7 @@ class Settings:
     source: str = "system"
     device: int | None = None
     device_name: str = ""
+    application_path: str = ""
     language: str = "ja"
     target: str = "off"
     chunk_seconds: float = 4.0
@@ -102,8 +103,10 @@ class Settings:
             raise ValueError("Unknown floating caption timing mode")
         if not 0 <= self.overlay_delay_seconds <= MAX_OVERLAY_DELAY:
             raise ValueError("Invalid floating caption delay")
-        if self.source not in {"system", "microphone"}:
+        if self.source not in {"system", "microphone", "application"}:
             raise ValueError("Unknown audio source")
+        if not isinstance(self.application_path, str):
+            raise ValueError("Invalid application audio path")
         if not 1 <= self.chunk_seconds <= 30 or not 1 <= self.max_seconds <= 30:
             raise ValueError("Audio windows must be between 1 and 30 seconds")
         if not 0.2 <= self.pause_seconds <= 3 or not 0.4 <= self.preview_seconds <= 5:
