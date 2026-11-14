@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -7,9 +8,12 @@ import httpx
 import keyring
 
 from koeha.translation.connection_profiles import base_url, is_loopback_url
-from koeha.translation.prompt_profiles import translation_instruction
+from koeha.translation.prompt_profiles import SUBTITLE_REQUEST_INSTRUCTION, translation_instruction
 
 SERVICE = "KOEHA.translation"
+SOURCE_HISTORY_LIMIT = 4
+REQUEST_TIMEOUT = 20.0
+ERROR_NOTICE_COOLDOWN = 10.0
 
 
 def get_key(url):
@@ -71,16 +75,21 @@ class Translator:
         self.on_caption = on_caption
         self.on_error = on_error
         credential = "profile:" + settings.translation_profile if settings.translation_profile else settings.translation_url
+        profile = next((p for p in settings.translation_profiles if p.id == settings.translation_profile), None)
+        sampling = {"temperature": profile.temperature, "top_p": profile.top_p} if profile else {"temperature": 0}
+        self.sampling = {name: value for name, value in sampling.items() if value is not None}
         self.key = get_key(credential) if settings.target != "off" else ""
-        self.client = _client(settings.translation_url, timeout=40)
-        self.finals = ThreadPoolExecutor(max_workers=3, thread_name_prefix="koeha-translate")
+        self.client = _client(settings.translation_url, timeout=REQUEST_TIMEOUT)
+        self.finals = ThreadPoolExecutor(max_workers=1, thread_name_prefix="koeha-translate")
         self.drafts = ThreadPoolExecutor(max_workers=1, thread_name_prefix="koeha-draft")
         self.lock = threading.Lock()
         self.last_committed = 0
-        self.context = {}
+        self.source_history = {}
         self.pending = 0
         self.draft_future = None
         self.last_draft = 0
+        self.last_error_notice = 0.0
+        self.last_error_message = ""
         self.final_jobs = {}
         self.closed = False
 
@@ -88,13 +97,20 @@ class Translator:
         if self.settings.target == "off" or not caption.text:
             return
         with self.lock:
+            if self.closed:
+                return
             if system_prompt is not None and system_prompt != self.system_prompt:
                 self.system_prompt = system_prompt
                 self.prompt_revision += 1
-                self.context.clear()
                 self.last_draft = 0
+            reference = tuple(text for caption_id, text in sorted(self.source_history.items())
+                              if caption_id < caption.id)
             if caption.final:
                 self.last_committed = max(self.last_committed, caption.id)
+                # Capture source context as speech is recognized, even if translation falls behind.
+                self.source_history[caption.id] = caption.text
+                if len(self.source_history) > SOURCE_HISTORY_LIMIT:
+                    del self.source_history[min(self.source_history)]
                 if self.pending >= 64:
                     self.on_caption(replace(caption, translation_error="Translation queue is full"))
                     return
@@ -105,50 +121,64 @@ class Translator:
                 return
             else:
                 self.last_draft = time.monotonic()
-            context = [self.context[key] for key in sorted(self.context) if key < caption.id][-4:]
             prompt, revision = self.system_prompt, self.prompt_revision
-        pool = self.finals if caption.final else self.drafts
-        future = pool.submit(self._translate, caption, context, prompt, revision)
-        if caption.final:
-            with self.lock:
+            pool = self.finals if caption.final else self.drafts
+            future = pool.submit(self._translate, caption, prompt, revision, reference)
+            if caption.final:
                 self.final_jobs[future] = caption
+            else:
+                self.draft_future = future
+        if caption.final:
             future.add_done_callback(self._forget)
-        else:
-            self.draft_future = future
 
     def _forget(self, future):
         with self.lock:
             self.final_jobs.pop(future, None)
 
-    def _translate(self, caption, context, prompt, revision):
+    def _notify_error(self, message):
+        now = time.monotonic()
+        with self.lock:
+            if message == self.last_error_message and now - self.last_error_notice < ERROR_NOTICE_COOLDOWN:
+                return
+            self.last_error_message = message
+            self.last_error_notice = now
+        self.on_error("Translation failed: " + message)
+
+    def _draft_is_stale(self, caption, revision):
+        with self.lock:
+            return caption.id <= self.last_committed or self.closed or revision != self.prompt_revision
+
+    def _translate(self, caption, prompt, revision, reference):
         try:
-            messages = [{"role": "system", "content": prompt}]
-            for original, translated in context:
-                messages.extend([{"role": "user", "content": original},
-                                 {"role": "assistant", "content": translated}])
+            if not caption.final and self._draft_is_stale(caption, revision):
+                return
+            messages = [{"role": "system", "content": prompt + "\n\n" + SUBTITLE_REQUEST_INSTRUCTION}]
+            if reference:
+                reference_text = "Earlier source subtitles (reference only, oldest first):\n" + json.dumps(
+                    reference, ensure_ascii=False)
+                messages.extend([
+                    {"role": "user", "content": reference_text},
+                    {"role": "assistant", "content": "I will use these as reference only."},
+                ])
             messages.append({"role": "user", "content": caption.text})
             url = base_url(self.settings.translation_url)
             headers = _authorization_headers(self.key)
-            response = self.client.post(url + "/chat/completions",
-                headers=headers, follow_redirects=False, json={"model": self.settings.translation_model, "messages": messages,
-                                       "temperature": .2, "max_tokens": 1024})
+            response = self.client.post(url + "/chat/completions", headers=headers, follow_redirects=False, json={
+                "model": self.settings.translation_model, "messages": messages, "max_tokens": 1024, **self.sampling,
+            })
             response.raise_for_status()
             text = response.json()["choices"][0]["message"]["content"].strip()
-            with self.lock:
-                if caption.final and revision == self.prompt_revision:
-                    self.context[caption.id] = (caption.text, text)
-                    # Retain bounded context even during long sessions.
-                    for key in sorted(self.context)[:-8]:
-                        del self.context[key]
-                elif not caption.final and (caption.id <= self.last_committed or self.closed or
-                                            revision != self.prompt_revision):
-                    return
+            if caption.final:
+                with self.lock:
+                    self.last_error_message = ""
+            elif self._draft_is_stale(caption, revision):
+                return
             self.on_caption(replace(caption, translation=text))
         except Exception as error:
             if caption.final:
                 message = request_error_message(error, self.key)
                 self.on_caption(replace(caption, translation_error=message))
-                self.on_error("Translation failed: " + message)
+                self._notify_error(message)
         finally:
             if caption.final:
                 with self.lock:
@@ -162,8 +192,11 @@ class Translator:
         self.drafts.shutdown(wait=False, cancel_futures=True)
         deadline = time.monotonic() + grace
         for future in jobs:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                future.result(timeout=max(0, deadline - time.monotonic()))
+                future.result(timeout=remaining)
             except Exception:
                 pass  # failures are reported by _translate; timeouts are cancelled below
         self.finals.shutdown(wait=False, cancel_futures=True)

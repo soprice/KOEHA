@@ -5,7 +5,8 @@ from dataclasses import replace
 
 from PySide6.QtCore import QObject, Signal
 
-from koeha.audio.capture import capture, file_audio, frames
+from koeha.audio.applications import application_audio_supported
+from koeha.audio.capture import capture, capture_application, file_audio, frames
 from koeha.audio.pipeline import LivePipeline
 from koeha.audio.vad import VoiceDetector
 from koeha.core.paths import data_root
@@ -134,7 +135,7 @@ class Controller(QObject):
         self.models_changed.emit()
         return True
 
-    def start(self, file=None):
+    def start(self, file=None, *, application=None):
         if self.jobs:
             self.error.emit("Wait for setup or engine maintenance to finish before starting a session.")
             return
@@ -142,6 +143,13 @@ class Controller(QObject):
             return
         settings = replace(self.settings)
         settings.validate()
+        if file is None and settings.source == "application":
+            if not application_audio_supported():
+                self.error.emit("Application audio requires Windows build 20348 or later.")
+                return
+            if application is None:
+                self.error.emit("Choose an application in Live before starting.")
+                return
         model = by_id(settings.model)
         if not is_ready(self.root, model):
             self.error.emit("Download the selected recognition model in Models before starting.")
@@ -155,11 +163,11 @@ class Controller(QObject):
         self._session_settings = settings
         self._translation_prompt = translation_instruction(settings)
         self.running.emit(True)
-        self.thread = threading.Thread(target=self._run, args=(settings, model, file, self.generation),
+        self.thread = threading.Thread(target=self._run, args=(settings, model, file, self.generation, application),
                                        name="koeha-session", daemon=True)
         self.thread.start()
 
-    def _run(self, settings, model, file, generation):
+    def _run(self, settings, model, file, generation, application=None):
         decoder = translator = None
         session = self.session
         def emit(caption):
@@ -186,6 +194,8 @@ class Controller(QObject):
             self.pipeline.stop = self.stop_event
             if file:
                 source = file_audio(file)
+            elif settings.source == "application":
+                source = capture_application(application, self.stop_event)
             else:
                 source = capture(settings.source, settings.device, self.stop_event, settings.device_name)
             self.status.emit("Transcribing file" if file else "Listening")

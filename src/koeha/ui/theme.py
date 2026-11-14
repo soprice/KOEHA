@@ -103,6 +103,7 @@ QComboBox QAbstractItemView::item { min-height:30px; padding:0 10px; border-radi
 QComboBox QAbstractItemView::item:hover { background:{hover}; }
 QComboBox QAbstractItemView::item:selected { background:{accent_soft}; color:#c9f2de; }
 QDoubleSpinBox { padding:4px 30px 4px 2px; }
+QDoubleSpinBox#translationSampling { padding-bottom:5px; }
 QDoubleSpinBox::up-button, QDoubleSpinBox::down-button { subcontrol-origin:border; width:24px; border:0; background:transparent; border-radius:6px; margin:2px 3px; }
 QDoubleSpinBox::up-button { subcontrol-position:top right; }
 QDoubleSpinBox::down-button { subcontrol-position:bottom right; }

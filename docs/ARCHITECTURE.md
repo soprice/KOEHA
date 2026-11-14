@@ -55,8 +55,8 @@ explicit error. File input waits for queue space. Stop ends capture, flushes the
 last speech window, drains final recognition and finishes translation before the
 session becomes idle.
 
-Translations can finish out of order. Caption IDs preserve audio order in the UI,
-history and exports. A draft cannot overwrite a final caption. History writes happen
+Final translations run one at a time in submission order. Caption IDs preserve audio
+order in the UI, history and exports. A draft cannot overwrite a final caption. History writes happen
 before the UI notification, and a translation failure preserves the original text.
 The visible session cache is bounded; saved history retains the complete session.
 
@@ -79,9 +79,10 @@ profiles. Their save action leaves connection drafts and credentials untouched.
 The translator resolves the selected profile at session creation, replaces
 the supported language placeholders, and appends the profile's scene context and glossary.
 Legacy settings with shared scene context and glossary copy those fields into each
-profile when loaded. Recognition receives the selected profile's scene context at
-session start.
-It sends the result as the system message and retains dialogue in user messages.
+profile when loaded. The translator sends the result as the system message and
+labels earlier source subtitles as reference. The final user message is the subtitle
+to translate. Whisper uses scene context as a recognition hint at session start.
+Qwen3 ASR receives audio and the selected recognition language.
 
 Model setup installs a matched CUDA Torch/torchaudio pair and the bundled inference
 dependency lock, then checks imports. NeMo uses Transformers 4.57.6 in its own

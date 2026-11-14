@@ -55,6 +55,8 @@ class ConnectionProfile:
     provider: str = "custom"
     url: str = "http://127.0.0.1:8080/v1"
     model: str = ""
+    temperature: float | None = 0.0
+    top_p: float | None = None
 
     @property
     def credential_id(self):
@@ -69,4 +71,7 @@ class ConnectionProfile:
             raise ValueError("Unknown translation provider")
         if not isinstance(self.model, str) or not isinstance(self.url, str):
             raise ValueError("Invalid connection profile model or URL")
+        for label, value, maximum in (("Temperature", self.temperature, 2), ("Top P", self.top_p, 1)):
+            if value is not None and (type(value) not in (int, float) or not 0 <= value <= maximum):
+                raise ValueError(f"{label} must be between 0 and {maximum}")
         base_url(self.url, self.provider)

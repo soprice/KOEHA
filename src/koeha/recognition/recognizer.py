@@ -45,7 +45,6 @@ class Recognizer:
         self.client = None
         self.model = model
         self.language = language
-        self.context = context
         self.cancel = cancel
         # "cuda" or "cpu" as reported by a Python worker; empty when the runtime chooses for itself.
         self.device = ""
@@ -183,11 +182,9 @@ class Recognizer:
         return clean_music_hallucinations(answer["text"]), answer
 
     def _decode_server(self, pcm):
-        messages = []
-        if self.context:
-            messages.append({"role": "system", "content": self.context[:1000]})
-        messages.append({"role": "user", "content": [{"type": "input_audio", "input_audio": {
-            "data": base64.b64encode(wav(pcm)).decode("ascii"), "format": "wav"}}]})
+        # Qwen3 ASR can emit the scene description as speech, even on silence.
+        messages = [{"role": "user", "content": [{"type": "input_audio", "input_audio": {
+            "data": base64.b64encode(wav(pcm)).decode("ascii"), "format": "wav"}}]}]
         names = {"ja": "Japanese", "en": "English", "th": "Thai", "zh": "Chinese", "ko": "Korean"}
         if self.language in names:
             messages.append({"role": "assistant", "content": f"language {names[self.language]}<asr_text>"})
