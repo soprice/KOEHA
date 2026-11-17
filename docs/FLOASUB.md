@@ -14,7 +14,7 @@ The **Playback** category provides three flows:
 
 Smart Dual's **Live preview strip** has three modes: **Full** (original and draft translation), **Raw** (original only), and **Off** (committed captions only). **Translate live previews** separately controls whether draft translation requests are enabled. When it is disabled, Full mode does not create preview translations.
 
-Draft translations are provisional. A final translation supersedes its draft; a draft must not overwrite a finalized caption. Playback uses caption IDs to preserve order and bounds the number of pending captions. Translation failures preserve the original subtitle.
+Draft translations are provisional. Each carries the exact source text it translated so the live strip can indicate when the recognition preview has moved on. A final translation supersedes its draft. Final translation requests run in order on a separate worker, and each request can reference up to four earlier finalized source lines. Playback uses caption IDs to apply updates and keeps a bounded queue of final captions. If a translation fails or the wait limit expires, the original subtitle can still be displayed.
 
 ## Timing and interaction
 
@@ -30,7 +30,7 @@ The rendered caption layout may include a finalized source line, a finalized tra
 
 ## Settings compatibility
 
-The settings loader maps legacy overlay timing values `immediate` and `delayed` to the corresponding new flows and supplies defaults for newly added fields. Unknown profile fields are ignored during profile loading for compatibility across versions.
+The settings loader maps legacy `immediate` timing to Smart Dual and `delayed` timing to Committed Only. It keeps the configured delay for delayed mode and supplies defaults for newly added fields. Saved application-audio selections, Temperature and Top P load alongside FloaSub settings. Unknown fields are ignored during profile loading for compatibility across versions.
 
 ## Implementation reference
 
@@ -42,4 +42,4 @@ The settings loader maps legacy overlay timing values `immediate` and `delayed` 
 
 ## Validation
 
-The branch adds automated test coverage for playback, caption style, UI, translation, and connection behavior. These changes are not proof of a passing CI run or physical Windows audio validation. Run `./scripts/check.ps1` and review GitHub Actions checks on the combined PR before release.
+Playback, rendering, preview controls and translation ordering have automated regression coverage. See [Validation](VALIDATION.md) for Windows checks and their coverage.

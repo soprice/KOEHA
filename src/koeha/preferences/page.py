@@ -118,9 +118,11 @@ class SettingsPage:
         return widget
 
     def read_settings(self):
+        application = self.application_picker.currentData()
         return replace(self.controller.settings, model=self.model.currentData(), mode=self.mode.currentData(),
             source=self.source.currentData(), device=self.device.currentData(),
             device_name=self.device.currentText() if self.device.currentData() is not None else "",
+            application_path=application.executable if application else self.controller.settings.application_path,
             language=self.language.currentData(),
             target=self.target.currentData(), chunk_seconds=self.chunk_size.value(), pause_seconds=self.pause_size.value(),
             preview_seconds=self.preview_size.value(), max_seconds=self.max_size.value(), voice_threshold=self.threshold.value(),

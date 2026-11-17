@@ -34,10 +34,10 @@
 
 | | What you can do |
 | :--- | :--- |
-| **Live transcription** | Capture Windows system playback or a microphone and recognize speech locally. |
+| **Live transcription** | Capture system playback, a running desktop application, or a microphone and recognize speech locally. |
 | **Two delivery modes** | See revisable text in Live Preview or output completed segments in Finalized Chunks. |
 | **Optional translation** | Save connection profiles for LM Studio, Ollama, or an OpenAI-compatible API. Choose an independent translation style and add scene context or a glossary. |
-| **Floating subtitles** | Customize fonts, original/translation colors, text outlines, and background borders in a movable overlay. |
+| **FloaSub floating subtitles** | Show finalized subtitles and live drafts in Smart Dual, or select an ordered or instant single-slot flow. Customize the appearance of the movable overlay. |
 | **Sessions & exports** | Keep local transcript history and export TXT, JSON, SRT, or VTT. |
 | **English & Thai** | Choose either interface language and switch between Side by side, Stacked, and Original only transcript layouts. |
 
@@ -90,7 +90,10 @@ and in the Live model selector.
 
 ### Start a session
 
-1. In **Live**, choose system audio or microphone, your audio device, and the spoken language.
+1. In **Live**, choose a capture source and spoken language. With **Application audio**,
+   choose a running desktop app in **Input** and use **Refresh apps** after opening new apps.
+   This captures audio from the app and its child processes, including audio from browser
+   tabs in that process tree. Application audio requires Windows build 20348 or later.
 2. Select **Live Preview** or **Finalized Chunks**. Adjust timing under **Settings → Recognition**.
 3. To translate, create a connection profile in **Settings → Translation API**. In **Live → Setup**, select the profile and target language, then click **Load models** to choose a model from that server. Choose a translation style below Setup.
 4. Click **Start Live**. Use **Floating captions** to open the overlay and **Sessions** to view saved transcripts.
@@ -157,6 +160,10 @@ own API key in Windows Credential Manager, including profiles sharing one URL;
 keys are never written to the settings JSON. Existing connection settings become
 the **Default** profile, and its existing key is carried over when you first save.
 
+Set **Temperature** and **Top P** in the connection profile. Lower either field to
+**Server default** to let the server choose its value. Saved changes apply when
+you start a new session.
+
 > [!NOTE]
 > **HTTP and HTTPS for translation**
 >
@@ -189,19 +196,23 @@ omits `{target_language}`, the selected output language is appended automaticall
 Scene context gives the model background for the dialogue. The glossary lists
 preferred translations for names and terms, one `original = translation` pair per line.
 Both are optional. KOEHA appends the selected profile's context and glossary to its
-system prompt and sends the result as the API's `system` message. Recognized
-dialogue is sent as a separate `user` message. Choose **Translation style** during
-a Live session to apply it to new translation requests. Requests already submitted
-finish with the style they started with.
+system prompt and sends the result as the API's `system` message. Each request
+sends up to four earlier finalized subtitles in the source language as reference.
+The final `user` message contains the subtitle to translate. Choose **Translation
+style** during a Live session to apply it to new translation requests. Requests
+already submitted keep their original style. Final translation requests run one at
+a time in submission order. Optional draft translations run separately so live
+previews can update while the final queue is busy.
 
 ## Caption appearance
 
-Use **Overlay Studio → Caption timing** to choose how floating captions update.
-**Immediate** shows the latest caption, including live previews. **Delayed** buffers
-finalized captions for the configured number of seconds and shows them in order,
-with at least 1.5 seconds per caption. If translation is still pending when a caption
-appears, KOEHA shows the original and adds the translation if it arrives while that
-caption is visible. You can change timing during a session.
+Use **Overlay → Playback → Subtitle flow** to choose how floating captions update.
+**Smart Dual** displays finalized subtitles in the main panel and ongoing speech in
+a separate live strip. **Committed Only** displays finalized captions in order.
+**Live Single** shows live and finalized captions in one slot. Use **Wait for
+translation**, **Minimum reading time**, **Sync delay**, and **Auto-hide on silence**
+to tune playback. When the wait expires, the original can appear while translation
+is pending, and the translation can update the caption while it remains visible.
 
 Open **Overlay** to adjust the text and see each change in the preview:
 
@@ -212,7 +223,7 @@ Open **Overlay** to adjust the text and see each change in the preview:
 
 Click a color swatch to open the picker, or enter a HEX color directly. Appearance
 changes apply to the floating captions immediately and are saved automatically.
-See the **[caption appearance guide](docs/CAPTION_STYLE.md)** for all controls.
+See the [FloaSub guide](docs/FLOASUB.md) and the [caption appearance guide](docs/CAPTION_STYLE.md).
 
 ## Recognition models
 

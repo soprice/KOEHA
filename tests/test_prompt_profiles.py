@@ -7,7 +7,12 @@ import pytest
 from koeha.app.controller import Controller
 from koeha.core.events import Caption
 from koeha.core.settings import Settings
-from koeha.translation.prompt_profiles import DEFAULT_PROMPT, PromptProfile, translation_instruction
+from koeha.translation.prompt_profiles import (
+    DEFAULT_PROMPT,
+    SUBTITLE_REQUEST_INSTRUCTION,
+    PromptProfile,
+    translation_instruction,
+)
 from koeha.ui.main_window import MainWindow
 
 
@@ -172,7 +177,8 @@ def test_selected_prompt_is_sent_as_system_and_is_frozen_for_the_session(monkeyp
     assert not errors and output[0].translation == "สวัสดี"
     messages = payloads[0]["messages"]
     assert messages[0] == {"role": "system", "content":
-        "Use literary Thai for Japanese dialogue.\nScene: Fantasy\nGlossary:\n王 = ราชา"}
+        "Use literary Thai for Japanese dialogue.\nScene: Fantasy\nGlossary:\n王 = ราชา\n\n"
+        + SUBTITLE_REQUEST_INSTRUCTION}
     assert messages[-1] == {"role": "user", "content": dialogue}
     assert payloads[0]["model"] == "local"
     next_settings = replace(settings, prompt_profile="default", prompt_profiles=Settings().prompt_profiles)

@@ -1,9 +1,11 @@
 """The Live page: setup controls, session state, level meter and transcript view."""
 import html
+import os
 import time
 from dataclasses import replace
+from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSignalBlocker, Qt, QTimer
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -17,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from koeha.audio.applications import application_audio_supported, applications
 from koeha.audio.capture import devices
 from koeha.audio.segmentation import StableText
 from koeha.core.i18n import tr
@@ -190,8 +193,12 @@ class LivePage:
         setup.setSpacing(8)
         options = QHBoxLayout()
         options.setSpacing(10)
-        self.source = choices([("System audio / loopback", "system"), ("Microphone", "microphone")], settings.source)
+        self.source = choices([("System audio / loopback", "system"), ("Microphone", "microphone"),
+                               ("Application audio", "application")], settings.source)
         self.device = choices([])
+        self.application_picker = choices([])
+        self.application_picker.setPlaceholderText(tr("Choose an application"))
+        self.application_status = label("", "muted")
         self.model = choices([(m.name, m.id) for m in MODELS], settings.model)
         self.vad_profile = choices([("Speech (dialogue)", SPEECH_VAD), ("Music/Vocal (singing)", MUSIC_VOCAL_VAD)],
                                    settings.vad_profile)
@@ -233,6 +240,26 @@ class LivePage:
                 widget.setAccessibleName(tr(name))
                 widget.setMinimumWidth(120)
                 panel_layout.addWidget(widget)
+                if widget is self.device:
+                    self.device_label = field_label
+            if title == "INPUT":
+                self.application_fields = QWidget()
+                app_layout = QVBoxLayout(self.application_fields)
+                app_layout.setContentsMargins(0, 0, 0, 0)
+                app_layout.setSpacing(6)
+                app_label = label("Application", "muted")
+                app_label.setBuddy(self.application_picker)
+                self.application_picker.setAccessibleName(tr("Application"))
+                app_layout.addWidget(app_label)
+                app_layout.addWidget(self.application_picker)
+                row = QHBoxLayout()
+                row.addWidget(self.application_status, 1)
+                refresh = button("Refresh apps", self.refresh_applications, "ghost")
+                self.refresh_apps_button = refresh
+                row.addWidget(refresh, alignment=Qt.AlignmentFlag.AlignTop)
+                app_layout.addLayout(row)
+                panel_layout.addWidget(self.application_fields)
+                self.application_fields.hide()
             if title == "TRANSLATION":
                 footer = QHBoxLayout()
                 footer.addWidget(self.live_translation_status, 1)
@@ -258,7 +285,8 @@ class LivePage:
         self.advanced_button = button("More settings", lambda: self.navigate(4), "link")
         self.advanced_button.setCursor(Qt.CursorShape.PointingHandCursor)
         more.addWidget(self.advanced_button)
-        for combo in (self.source, self.device, self.model, self.language, self.vad_profile, self.target, self.mode):
+        for combo in (self.source, self.device, self.application_picker, self.model, self.language,
+                      self.vad_profile, self.target, self.mode):
             combo.currentIndexChanged.connect(self.update_summary)
         self.source.currentIndexChanged.connect(self.refresh_devices)
         controls_layout.addWidget(self.input_controls)
@@ -321,6 +349,13 @@ class LivePage:
         return panel, text
 
     def refresh_devices(self):
+        by_app = self.source.currentData() == "application"
+        self.device_label.setVisible(not by_app)
+        self.device.setVisible(not by_app)
+        self.application_fields.setVisible(by_app)
+        if by_app:
+            self.refresh_applications()
+            return
         self.device.clear()
         self.device.addItem(tr("System default"), None)
         try:
@@ -339,15 +374,59 @@ class LivePage:
         except Exception as error:
             self.show_error("Audio devices: " + str(error))
 
+    def refresh_applications(self):
+        chosen = self.application_picker.currentData()
+        saved_path = chosen.executable if chosen else self.controller.settings.application_path
+        supported = application_audio_supported()
+        available = []
+        message = ""
+        try:
+            if supported:
+                available = applications()
+        except OSError as error:
+            message = str(error)
+        with QSignalBlocker(self.application_picker):
+            self.application_picker.clear()
+            matching = []
+            selected = -1
+            for index, app in enumerate(available):
+                self.application_picker.addItem(f"{Path(app.executable).stem} · {app.title}", app)
+                if os.path.normcase(app.executable) == os.path.normcase(saved_path):
+                    matching.append(index)
+                    if chosen and chosen.pid == app.pid:
+                        selected = index
+            if selected < 0 and len(matching) == 1 and not chosen:
+                selected = matching[0]
+            self.application_picker.setCurrentIndex(selected)
+        self.application_picker.setToolTip(self.application_picker.currentText())
+        self.application_picker.setEnabled(bool(available))
+        self.refresh_apps_button.setEnabled(supported)
+        if not supported:
+            message = tr("Application audio requires Windows build 20348 or later.")
+        elif not message and not available:
+            message = tr("Open an app, then refresh the list.")
+        self.application_status.setText(message)
+        self.application_status.setVisible(bool(message))
+        self.update_summary()
+
     def toggle_live(self):
         if self.active:
             self.controller.stop()
             self.start_button.setEnabled(False)
             return
+        by_app = self.source.currentData() == "application"
+        application = self.application_picker.currentData()
+        if by_app and application is None:
+            self.show_error("Choose an application in Live before starting." if application_audio_supported()
+                            else "Application audio requires Windows build 20348 or later.")
+            return
         if self.save_settings():
             self.lines.clear()
             self.stability.clear()
-            self.controller.start()
+            if by_app:
+                self.controller.start(application=application)
+            else:
+                self.controller.start()
 
     def show_setup(self, visible):
         self.input_controls.setVisible(visible)
@@ -370,7 +449,10 @@ class LivePage:
         endpoint = (self.connections.endpoint.text() if hasattr(self, "connections")
                     else self.controller.settings.translation_url)
         self.translation_http_warning.setVisible(target != "off" and uses_remote_http(endpoint))
-        parts = [self.vad_profile.currentText(), self.source.currentText(), self.model.currentText().split(" · ")[0],
+        application = self.application_picker.currentData()
+        source = (Path(application.executable).stem if self.source.currentData() == "application" and application
+                  else self.source.currentText())
+        parts = [self.vad_profile.currentText(), source, self.model.currentText().split(" · ")[0],
                  self.language.currentText() + (" → " + self.target.currentText() if target != "off" else ""),
                  self.mode.currentText().split(" · ")[0]]
         self.summary.setText("  ·  ".join(parts))

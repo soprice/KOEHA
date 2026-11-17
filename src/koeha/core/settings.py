@@ -37,6 +37,7 @@ class Settings:
     source: str = "system"
     device: int | None = None
     device_name: str = ""
+    application_path: str = ""
     language: str = "ja"
     target: str = "off"
     chunk_seconds: float = 4.0
@@ -137,8 +138,10 @@ class Settings:
             raise ValueError("Invalid floating caption auto-hide delay")
         if not 300 <= self.overlay_max_width <= 1600:
             raise ValueError("Floating caption max width must be between 300 and 1600 pixels")
-        if self.source not in {"system", "microphone"}:
+        if self.source not in {"system", "microphone", "application"}:
             raise ValueError("Unknown audio source")
+        if not isinstance(self.application_path, str):
+            raise ValueError("Invalid application audio path")
         if not 1 <= self.chunk_seconds <= 30 or not 1 <= self.max_seconds <= 30:
             raise ValueError("Audio windows must be between 1 and 30 seconds")
         if not 0.2 <= self.pause_seconds <= 3 or not 0.4 <= self.preview_seconds <= 5:
@@ -177,9 +180,6 @@ class Settings:
             if not isinstance(profiles, list) or any(not isinstance(p, dict) for p in profiles):
                 raise ValueError("Invalid connection profiles")
             data["translation_profiles"] = [_from_fields(ConnectionProfile, p) for p in profiles]
-        # Branch-only capture sources fall back to system loopback so profiles still load.
-        if data.get("source") == "application":
-            data["source"] = "system"
         # Migrate pre-FloaSub timing modes ("immediate" / "delayed").
         legacy_timing = data.get("overlay_timing")
         if legacy_timing == "delayed":

@@ -13,11 +13,11 @@ an `__init__.py` without imports, so importing one feature never loads another. 
 | --- | --- | --- |
 | `core` | `paths`, `settings`, `events`, `i18n`, `runtime_tools` | Data directory, settings model, caption/audio events, interface language, external process launch |
 | `app` | `controller` | Session ownership, background jobs and UI events |
-| `audio` | `capture`, `vad`, `segmentation`, `pipeline` | WASAPI loopback, microphone, media decoding, speech detection, audio windows, recognition scheduling |
+| `audio` | `capture`, `applications`, `process_loopback`, `vad`, `segmentation`, `pipeline` | System or per-process WASAPI loopback, microphone, media decoding, speech detection, audio windows, recognition scheduling |
 | `recognition` | `recognizer`, `worker` | Local HTTP inference and isolated Python inference |
 | `models` | `catalog`, `engines`, `runtime_audit`, `runtime_locks/`, `engines_panel`, `page` | Pinned manifests, checksummed weights, runtime setup, integrity checks, Models page |
 | `translation` | `translator`, `connection_profiles`, `prompt_profiles`, `connections_panel`, `prompt_profiles_panel`, `controls` | Translation requests, provider and prompt profiles, their panels and Live selectors |
-| `overlay` | `captions`, `studio`, `color_control`, `page` | Caption rendering, floating window, Overlay Studio page |
+| `overlay` | `playback`, `captions`, `studio`, `color_control`, `page` | Subtitle playback, caption rendering, floating window, Overlay Studio page |
 | `history` | `store`, `page` | SQLite sessions, subtitle export, Sessions page |
 | `live` | `page` | Live page: setup controls, session state and transcript view |
 | `preferences` | `sections`, `hardware`, `page` | Settings page, category navigation, hardware inventory |
@@ -53,12 +53,20 @@ Capture and recognition run independently. Preview work may be replaced by newer
 work. Final windows remain queued; a realtime overflow stops the session with an
 explicit error. File input waits for queue space. Stop ends capture, flushes the
 last speech window, drains final recognition and finishes translation before the
-session becomes idle.
+session becomes idle. Application audio uses Windows process-tree loopback on
+build 20348 or later. Settings remember the executable path, and a new session
+uses the PID selected in Live. The capture layer verifies the process image and
+resamples application audio to the same 16 kHz mono PCM used by the pipeline.
 
-Translations can finish out of order. Caption IDs preserve audio order in the UI,
-history and exports. A draft cannot overwrite a final caption. History writes happen
-before the UI notification, and a translation failure preserves the original text.
-The visible session cache is bounded; saved history retains the complete session.
+Accepted final requests translate one at a time in submission order. The queue
+holds up to 64 unfinished final requests. On Stop, requests have up to 30 seconds
+to drain. Unfinished results receive a cancellation in order, and late replies
+are discarded. A separate worker handles at most one live draft request at a time.
+Finalizing an utterance, changing the prompt for new requests, disabling drafts or
+closing the session can invalidate a draft. Draft events carry the source text they
+translated so the UI can distinguish a draft for an earlier preview. Caption IDs
+preserve audio order in the UI, history and exports. History stores finalized
+source text and updates it with the translation or error before notifying the UI.
 
 ## Data and execution
 
@@ -67,7 +75,9 @@ settings, history, downloaded models, runtime executables and setup logs. API ke
 live in the operating system credential store. Recognition is local. Translation
 sends text only to the configured API. No automatic provider fallback is used.
 
-Translation profiles store names, provider types, base URLs and model IDs in settings.
+Translation profiles store names, provider types, base URLs, model IDs, Temperature
+and Top P in settings. A sampling field set to **Server default** is omitted from
+the request.
 The active profile supplies the translation connection. LM Studio and Ollama use
 their OpenAI-compatible APIs, with provider-specific local URL defaults. Model
 discovery runs on a background thread with a bounded HTTP timeout; results are
@@ -79,9 +89,13 @@ profiles. Their save action leaves connection drafts and credentials untouched.
 The translator resolves the selected profile at session creation, replaces
 the supported language placeholders, and appends the profile's scene context and glossary.
 Legacy settings with shared scene context and glossary copy those fields into each
-profile when loaded. Recognition receives the selected profile's scene context at
-session start.
-It sends the result as the system message and retains dialogue in user messages.
+profile when loaded. The translator sends the result as the system message and
+labels up to four earlier finalized source subtitles as reference. Source history is
+recorded when recognition finalizes each caption, so context is available even
+while translation is queued. Both draft and final requests snapshot the prompt and
+earlier source lines when submitted. The final user message is the subtitle to
+translate. Whisper uses scene context as a recognition hint at session start.
+Qwen3 ASR receives audio and the selected recognition language.
 
 Model setup installs a matched CUDA Torch/torchaudio pair and the bundled inference
 dependency lock, then checks imports. NeMo uses Transformers 4.57.6 in its own
@@ -110,8 +124,14 @@ scripts, lock files and the standalone uv installer. Inference runtimes and mode
 stay in the existing application data directory. External Python workers launch with
 the bundle's DLL search modifications removed to avoid mixing framework libraries.
 
+FloaSub playback consumes recognition and translation updates by caption ID. In
+Smart Dual, the main panel reads from the ordered committed queue while the live
+strip can show a provisional translation. The playback queue applies the sync delay,
+translation wait limit and reading time. See the [FloaSub guide](FLOASUB.md).
+
 Caption appearance uses the same cached glyph paths for the embedded preview and
 floating window. Fill colors, rounded text strokes, panel transparency and borders
 are drawn independently. Appearance edits update the window immediately and save
 after a short debounce; they preserve the recognition configuration and upgrade
-existing settings with defaults for newly added fields.
+existing settings with defaults for newly added fields. The loader migrates legacy
+overlay timing values and reads known fields from older and newer profile files.

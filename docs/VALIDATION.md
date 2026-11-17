@@ -1,5 +1,29 @@
 # Validation
 
+## FloaSub and application audio · 2026-11-17
+
+On Windows 11 Pro (build 26300), Ruff passed and Pytest passed all 362 tests on
+Python 3.12 and 3.13. `scripts/check.ps1` synced locked dependencies, ran Ruff
+and Pytest, and built the wheel. The UI, overlay playback, caption appearance
+and connection tests also passed with the native Qt Windows backend (78 tests).
+
+- Opened Overlay Studio and compared its four-part sample preview with the
+  floating caption window. Enabled and unlocked click-through from Overlay Studio.
+- Captured a 500 Hz test tone from the selected Windows process while another
+  process played 1300 Hz. The captured signal isolated the selected process.
+- Replayed synthesized English speech through application loopback and the local
+  Qwen3 ASR runtime. The session produced seven draft translations and three
+  ordered final translations using a localhost mock API. The smoke test verified
+  source-reference messages, Temperature and Top P, and finalized history.
+- Deterministic tests cover stale draft responses, draft toggles during startup,
+  queue cancellation at Stop, and settings migration with overlay, application
+  audio and sampling fields in the same file.
+
+This run used generated audio and a mock translation API. Physical microphone
+input, device hot-plug, external providers and overlays in exclusive fullscreen
+were outside its coverage. The pull request's Windows CI covers the installer build
+and lifecycle on GitHub Actions.
+
 ## Windows and runtime checks · v0.2.4
 
 The local Windows check passed 302 tests and Ruff. The installer lifecycle
@@ -59,9 +83,8 @@ for the appearance editor and packaged indicator artwork.
 
 This is a functional check, not an accuracy benchmark or a prolonged live-session
 test. External translation APIs were checked using deterministic HTTP fixtures;
-no paid API call was made. Physical microphone speech, device hot-plug and per-app
-audio isolation were not validated. Capture supports system output and microphone,
-not selecting an individual application.
+no paid API call was made. Physical microphone speech and device hot-plug were
+outside that run's coverage. Application audio was added after this snapshot.
 
 ## Windows desktop and engine maintenance · 2026-11-06
 

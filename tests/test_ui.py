@@ -6,6 +6,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QPushButton
 
 from koeha.app.controller import Controller
+from koeha.audio.applications import Application
 from koeha.audio.capture import Device
 from koeha.core.events import Caption
 from koeha.core.settings import Settings
@@ -129,6 +130,30 @@ def test_saved_device_is_found_by_name_after_indexes_shift(studio, monkeypatch):
     monkeypatch.setattr("koeha.live.page.devices", lambda _: [Device(3, "Other")])
     studio.refresh_devices()
     assert studio.device.currentData() is None
+
+
+def test_application_audio_requires_an_app_and_starts_with_the_selected_process(studio, monkeypatch):
+    edge = Application(100, r"C:\Edge\msedge.exe", "Microsoft Edge")
+    player = Application(200, r"C:\Player\player.exe", "Player")
+    monkeypatch.setattr("koeha.live.page.application_audio_supported", lambda: True)
+    choices = [edge]
+    monkeypatch.setattr("koeha.live.page.applications", lambda: choices)
+    started = []
+    monkeypatch.setattr(studio.controller, "start", lambda *, application: started.append(application))
+
+    studio.source.setCurrentIndex(studio.source.findData("application"))
+    assert studio.device.isHidden() and studio.application_picker.isVisible()
+    studio.start_button.click()
+    assert "Choose an application" in studio.banner.text() and not started
+    choices.append(player)
+    studio.refresh_apps_button.click()
+    studio.application_picker.setCurrentIndex(1)
+    studio.start_button.click()
+    assert started == [player]
+    stored = Settings.load(studio.controller.root / "settings.json")
+    assert (stored.source, stored.application_path) == ("application", player.executable)
+    studio.source.setCurrentIndex(studio.source.findData("system"))
+    assert studio.application_fields.isHidden() and studio.device.isVisible()
 
 
 def test_overlay_keeps_dragged_position_when_shown_again(studio, app):

@@ -6,6 +6,11 @@ from queue import Empty, Full, Queue
 
 import av
 
+from koeha.audio.applications import application_audio_supported
+from koeha.audio.process_loopback import CHANNELS as APPLICATION_CHANNELS
+from koeha.audio.process_loopback import RATE as APPLICATION_RATE
+from koeha.audio.process_loopback import packets
+
 RATE = 16000
 FRAME_BYTES = 640
 MAX_OVERFLOWS = 10  # consecutive 20 ms callbacks
@@ -55,6 +60,47 @@ def _silence_slices(samples: int, stop):
         step = min(remaining, IDLE_SLICE_SAMPLES)
         remaining -= step
         yield bytes(step * 2)
+
+
+def _resample_pcm(resampler, pcm, rate, channels):
+    frame = av.AudioFrame(format="s16", layout="stereo" if channels == 2 else "mono",
+                          samples=len(pcm) // (channels * 2))
+    frame.sample_rate = rate
+    frame.planes[0].update(pcm)
+    for converted in resampler.resample(frame):
+        yield bytes(converted.planes[0])[:converted.samples * 2]
+
+
+def capture_application(application, stop):
+    if not application_audio_supported():
+        raise RuntimeError("Application audio requires Windows build 20348 or later.")
+    if stop.is_set():
+        return
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=RATE)
+    idle = IdleFill(clock())
+    with_audio = False
+    stream = packets(application, stop)
+    try:
+        for pcm in stream:
+            if pcm is None:
+                samples = idle.due(clock())
+                if samples:
+                    if with_audio:
+                        for converted in resampler.resample(None):
+                            yield bytes(converted.planes[0])[:converted.samples * 2]
+                        resampler = av.AudioResampler(format="s16", layout="mono", rate=RATE)
+                        with_audio = False
+                    yield from _silence_slices(samples, stop)
+                continue
+            frames_read = len(pcm) // (APPLICATION_CHANNELS * 2)
+            arrived = clock()
+            if idle.filled:
+                yield from _silence_slices(idle.due(arrived - frames_read / APPLICATION_RATE), stop)
+            idle.mark(arrived)
+            with_audio = True
+            yield from _resample_pcm(resampler, pcm, APPLICATION_RATE, APPLICATION_CHANNELS)
+    finally:
+        stream.close()
 
 
 def devices(source: str) -> list[Device]:
@@ -136,13 +182,8 @@ def capture(source: str, device: int | None, stop, device_name: str = "", *, clo
                 idle.mark(arrived)
                 if not samples:
                     continue
-                frame = av.AudioFrame(format="s16", layout="stereo" if channels == 2 else "mono",
-                                      samples=samples)
-                frame.sample_rate = rate
-                frame.planes[0].update(pcm)
                 has_audio = True
-                for converted in resampler.resample(frame):
-                    yield bytes(converted.planes[0])[:converted.samples * 2]
+                yield from _resample_pcm(resampler, pcm, rate, channels)
         finally:
             stream.close()
 
