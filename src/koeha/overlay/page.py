@@ -27,6 +27,8 @@ class OverlayPage:
         self.overlay_editor = OverlayStudio(self.controller.settings)
         self.overlay_playback = OverlayPlayback(self.show_overlay_view, **self.overlay_playback_config(), parent=self)
         self.overlay_editor.appearanceChanged.connect(self.update_overlay_style)
+        self.overlay.settingChanged.connect(self.overlay_editor.apply_patch)
+        self.overlay.hideRequested.connect(self.hide_overlay)
         layout.addWidget(self.overlay_editor, 1)
         return page
 
@@ -92,8 +94,12 @@ class OverlayPage:
             self.show_error(str(error))
             return False
 
+    def hide_overlay(self):
+        self.overlay.hide()
+        self.overlay_button.setChecked(False)
+
     def toggle_overlay(self):
         if self.pages.currentIndex() == 2 and not self.lines and not self.overlay.isVisible():
-            self.overlay.set_caption(self.overlay_editor.preview.original, self.overlay_editor.preview.translation)
+            self.overlay.set_view(self.overlay_editor.preview.view)
         self.overlay.setVisible(not self.overlay.isVisible())
         self.overlay_button.setChecked(self.overlay.isVisible())

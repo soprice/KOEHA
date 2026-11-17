@@ -4,11 +4,14 @@ from dataclasses import replace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 
 from koeha.core.settings import Settings
-from koeha.overlay.captions import CaptionCanvas
+from koeha.overlay.captions import CaptionCanvas, Overlay
 from koeha.overlay.color_control import ColorControl
+from koeha.overlay.playback import OverlayView
 
 
 def count_green(image):
@@ -153,3 +156,62 @@ def test_committing_an_unchanged_color_emits_nothing(app):
     assert changed == []
     assert color.edit.text() == "#112233"
     color.close()
+
+
+def test_caption_canvas_renders_four_part_view_and_snug_content_width(app):
+    canvas = CaptionCanvas(Settings(text_size=26, overlay_fit_width=True, overlay_max_width=900))
+    canvas.set_view(OverlayView(original="確定", translation="เสร็จแล้ว"))
+    two_line_h = canvas.heightForWidth(600)
+    short_w = canvas.content_width(900)
+
+    canvas.set_view(OverlayView(
+        original="確定文",
+        translation="ประโยคที่แปลแล้วเสร็จสมบูรณ์",
+        live_original="限界上と偽物も全部あの。",
+        live_stable="限界上と",
+        live_translation="เหนือขีดจำกัดและของปลอมทั้งหมด",
+    ))
+    four_line_h = canvas.heightForWidth(600)
+    assert four_line_h > two_line_h
+    assert short_w < canvas.content_width(900) <= 900
+
+    canvas.set_view(OverlayView(idle_hidden=True))
+    assert canvas._build_entries() == ([], [])
+    canvas.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+    canvas.resize(400, 100)
+    surface = QImage(400, 100, QImage.Format.Format_ARGB32)
+    surface.fill(Qt.GlobalColor.transparent)
+    canvas.render(surface)
+    assert surface.pixelColor(200, 50).alpha() == 0
+    canvas.close()
+
+
+def test_overlay_toolbar_cycles_live_mode_locks_click_through_and_hides(app):
+    overlay = Overlay(Settings(overlay_live_mode="full", overlay_fit_width=True, overlay_max_width=800))
+    patches, hidden = [], []
+    overlay.settingChanged.connect(patches.append)
+    overlay.hideRequested.connect(lambda: hidden.append(True))
+
+    overlay.show()
+    app.processEvents()
+    overlay.set_view(OverlayView(original="Hi", translation="สวัสดี"))
+    app.processEvents()
+    assert overlay.width() < 800
+
+    overlay.live_cycle_btn.click()
+    assert patches[-1] == {"overlay_live_mode": "raw"}
+    overlay.apply_settings(replace(overlay.settings, overlay_live_mode="raw"))
+    overlay.live_cycle_btn.click()
+    assert patches[-1] == {"overlay_live_mode": "off"}
+
+    overlay.lock_btn.click()
+    assert patches[-1] == {"overlay_click_through": True}
+    overlay.apply_settings(replace(overlay.settings, overlay_click_through=True))
+    assert bool(overlay.windowFlags() & Qt.WindowType.WindowTransparentForInput)
+
+    overlay.apply_settings(replace(overlay.settings, overlay_click_through=False))
+    assert not bool(overlay.windowFlags() & Qt.WindowType.WindowTransparentForInput)
+
+    overlay.close_btn.click()
+    assert hidden == [True]
+    overlay.close()
