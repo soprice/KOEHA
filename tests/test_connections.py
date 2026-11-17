@@ -51,6 +51,35 @@ def test_profiles_saved_by_the_ssh_preview_still_load(tmp_path):
     assert "ssh_user" not in path.read_text()
 
 
+def test_profiles_with_other_branch_fields_still_load(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({
+        "source": "application",
+        "application_path": "C:/Apps/player.exe",
+        "translation_profile": "9router",
+        "translation_profiles": [{
+            "id": "9router", "name": "9router", "provider": "custom",
+            "url": "http://192.168.31.198:20128/v1", "model": "cx/gpt-6-luna",
+            "temperature": 0.9, "top_p": None,
+        }],
+        "prompt_profile": "meda",
+        "prompt_profiles": [{
+            "id": "meda", "name": "meda", "system_prompt": "Translate to {target_language}.",
+            "future_flag": True,
+        }],
+    }))
+
+    settings = Settings.load(path)
+    assert settings.source == "system"
+    assert settings.translation_profile == "9router"
+    assert settings.translation_model == "cx/gpt-6-luna"
+    assert settings.prompt_profile == "meda"
+    assert settings.active_prompt_profile.name == "meda"
+    settings.save(path)
+    saved = path.read_text(encoding="utf-8")
+    assert "temperature" not in saved and "future_flag" not in saved
+
+
 def test_profiles_save_reopen_and_switch_from_live(studio, monkeypatch):
     credentials = {}
     monkeypatch.setattr("koeha.translation.connections_panel.get_key", lambda key: credentials.get(key, ""))

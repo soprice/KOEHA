@@ -25,6 +25,11 @@ OVERLAY_LIVE_FULL = "full"
 OVERLAY_LIVE_MODES = (OVERLAY_LIVE_OFF, OVERLAY_LIVE_RAW, OVERLAY_LIVE_FULL)
 
 
+def _from_fields(model_cls, raw: dict):
+    """Instantiate a dataclass from a JSON dict while ignoring unknown fields from other branches."""
+    return model_cls(**{key: value for key, value in raw.items() if key in model_cls.__dataclass_fields__})
+
+
 @dataclass
 class Settings:
     model: str = "qwen3-asr"
@@ -164,17 +169,17 @@ class Settings:
             prompts = data["prompt_profiles"]
             if not isinstance(prompts, list) or any(not isinstance(p, dict) for p in prompts):
                 raise ValueError("Invalid prompt profiles")
-            data["prompt_profiles"] = [PromptProfile(**(shared | p)) for p in prompts]
+            data["prompt_profiles"] = [_from_fields(PromptProfile, shared | p) for p in prompts]
         else:
             data["prompt_profiles"] = [replace(p, **shared) for p in default_prompt_profiles()]
         if "translation_profiles" in data:
             profiles = data["translation_profiles"]
             if not isinstance(profiles, list) or any(not isinstance(p, dict) for p in profiles):
                 raise ValueError("Invalid connection profiles")
-            # Profiles saved by the SSH tunnel preview still load as direct connections.
-            for profile in profiles:
-                profile.pop("ssh_user", None)
-            data["translation_profiles"] = [ConnectionProfile(**p) for p in profiles]
+            data["translation_profiles"] = [_from_fields(ConnectionProfile, p) for p in profiles]
+        # Branch-only capture sources fall back to system loopback so profiles still load.
+        if data.get("source") == "application":
+            data["source"] = "system"
         # Migrate pre-FloaSub timing modes ("immediate" / "delayed").
         legacy_timing = data.get("overlay_timing")
         if legacy_timing == "delayed":
@@ -183,7 +188,7 @@ class Settings:
             data["overlay_timing"] = OVERLAY_FLOW_SMART_DUAL
             if "overlay_wait_seconds" not in data:
                 data["overlay_delay_seconds"] = 0.0
-        result = cls(**{key: value for key, value in data.items() if key in cls.__dataclass_fields__})
+        result = _from_fields(cls, data)
         result.validate()
         if result.translation_profile:
             active = next(p for p in result.translation_profiles if p.id == result.translation_profile)
