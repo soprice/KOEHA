@@ -45,6 +45,7 @@ class Controller(QObject):
         self.generation = ""
         self._session_settings = None
         self._translation_prompt = None
+        self._translator = None
 
     @staticmethod
     def _load_settings(path):
@@ -176,6 +177,7 @@ class Controller(QObject):
                 # The session still runs; the banner explains why captions may fall behind.
                 self.error.emit(CPU_NOTICE)
             translator = Translator(settings, emit, self.error.emit)
+            self._translator = translator
             def recognized(caption):
                 emit(caption)
                 translator.submit(caption, system_prompt=self._translation_prompt)
@@ -201,6 +203,7 @@ class Controller(QObject):
             if decoder:
                 decoder.close()
             self.pipeline = None
+            self._translator = None
             self._session_settings = None
             self._translation_prompt = None
             self.level.emit(0)
@@ -213,6 +216,12 @@ class Controller(QObject):
         if settings is not None:
             self._translation_prompt = translation_instruction(replace(
                 settings, prompt_profile=profile.id, prompt_profiles=[profile]))
+
+    def set_draft_translation(self, enabled):
+        if self._session_settings is not None:
+            self._session_settings = replace(self._session_settings, draft_translation=bool(enabled))
+        if self._translator is not None:
+            self._translator.set_draft_enabled(bool(enabled))
 
     def stop(self):
         self.status.emit("Stopping; finishing the last audio window")

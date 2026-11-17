@@ -65,17 +65,47 @@ def merge_caption(previous, caption):
     """Combine recognizer and translator updates for one utterance without regressing either.
 
     Previews arrive without a translation and draft translations arrive for an older preview,
-    so each update keeps the newest text and the latest known translation.
+    so each update keeps the newest text and the latest known translation while tracking whether
+    the translation is still a draft and which source text produced it.
     """
     if previous is None:
+        if caption.translation and not caption.final:
+            return replace(
+                caption,
+                translation_draft=True,
+                translated_source=caption.translated_source or caption.text,
+            )
+        if caption.translation and not caption.translated_source:
+            return replace(caption, translated_source=caption.text)
         return caption
     if previous.final and not caption.final:
         return None
     if not caption.final and previous.end > caption.end:
-        return replace(previous, translation=caption.translation or previous.translation)
+        if caption.translation or caption.translation_error:
+            return replace(
+                previous,
+                translation=caption.translation or previous.translation,
+                translation_error=caption.translation_error or previous.translation_error,
+                translation_draft=not previous.final if caption.translation else previous.translation_draft,
+                translated_source=(
+                    (caption.translated_source or caption.text)
+                    if caption.translation
+                    else previous.translated_source
+                ),
+            )
+        return previous
     if not caption.translation and not caption.translation_error:
-        return replace(caption, translation=previous.translation)
-    return caption
+        return replace(
+            caption,
+            translation=previous.translation,
+            translation_draft=bool(previous.translation) and (previous.translation_draft or not previous.final),
+            translated_source=previous.translated_source or (previous.text if previous.translation else ""),
+        )
+    return replace(
+        caption,
+        translation_draft=caption.translation_draft or not caption.final,
+        translated_source=caption.translated_source or caption.text,
+    )
 
 
 class LivePage:

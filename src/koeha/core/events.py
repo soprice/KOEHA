@@ -10,6 +10,8 @@ class Caption:
     final: bool
     translation: str = ""
     translation_error: str = ""
+    translation_draft: bool = False
+    translated_source: str = ""
 
 
 @dataclass(frozen=True)

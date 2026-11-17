@@ -81,8 +81,13 @@ class Translator:
         self.pending = 0
         self.draft_future = None
         self.last_draft = 0
+        self.draft_enabled = settings.draft_translation
         self.final_jobs = {}
         self.closed = False
+
+    def set_draft_enabled(self, enabled):
+        with self.lock:
+            self.draft_enabled = bool(enabled)
 
     def submit(self, caption, *, system_prompt=None):
         if self.settings.target == "off" or not caption.text:
@@ -99,7 +104,7 @@ class Translator:
                     self.on_caption(replace(caption, translation_error="Translation queue is full"))
                     return
                 self.pending += 1
-            elif (not self.settings.draft_translation or caption.id <= self.last_committed or
+            elif (not self.draft_enabled or caption.id <= self.last_committed or
                   time.monotonic() - self.last_draft < .8 or
                   (self.draft_future and not self.draft_future.done())):
                 return
@@ -140,10 +145,15 @@ class Translator:
                     # Retain bounded context even during long sessions.
                     for key in sorted(self.context)[:-8]:
                         del self.context[key]
-                elif not caption.final and (caption.id <= self.last_committed or self.closed or
-                                            revision != self.prompt_revision):
+                elif not caption.final and (not self.draft_enabled or caption.id <= self.last_committed or
+                                            self.closed or revision != self.prompt_revision):
                     return
-            self.on_caption(replace(caption, translation=text))
+            self.on_caption(replace(
+                caption,
+                translation=text,
+                translation_draft=not caption.final,
+                translated_source=caption.text,
+            ))
         except Exception as error:
             if caption.final:
                 message = request_error_message(error, self.key)

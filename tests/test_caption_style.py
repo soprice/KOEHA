@@ -50,9 +50,21 @@ def test_legacy_settings_receive_style_defaults_and_invalid_color_is_not_saved(t
     path.write_text('{"mode":"chunk","language":"ja"}')
     settings = Settings.load(path)
     assert settings.text_size == 26 and settings.mode == "chunk"
+    assert settings.overlay_live_mode == "full" and settings.overlay_fit_width is True
     with pytest.raises(ValueError, match="Invalid caption color"):
         replace(settings, frame_color="invalid").save(path)
     assert Settings.load(path).mode == "chunk"
+
+
+def test_floasub_settings_validate_ranges():
+    with pytest.raises(ValueError, match="live preview mode"):
+        replace(Settings(), overlay_live_mode="bad").validate()
+    with pytest.raises(ValueError, match="wait limit"):
+        replace(Settings(), overlay_wait_seconds=20).validate()
+    with pytest.raises(ValueError, match="minimum reading time"):
+        replace(Settings(), overlay_min_display_seconds=0.1).validate()
+    with pytest.raises(ValueError, match="max width"):
+        replace(Settings(), overlay_max_width=200).validate()
 
 
 def test_long_multilingual_caption_increases_height_without_losing_text(app):

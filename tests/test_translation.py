@@ -105,3 +105,27 @@ def test_live_style_switch_snapshots_requests_and_starts_fresh_context(monkeypat
         {"role": "user", "content": "new request"},
     ]
     assert 2 not in translator.context
+
+
+def test_translator_tags_draft_vs_final_source_and_honors_live_draft_toggle(monkeypatch):
+    monkeypatch.setattr("koeha.translation.translator.get_key", lambda _: "")
+    output = []
+    translator = Translator(Settings(target="th", translation_model="test"), output.append, list().append)
+    translator.client.close()
+    translator.client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"choices": [{"message": {"content": "คำแปล"}}]})
+        )
+    )
+    translator.submit(Caption(1, 0, 1, "プレビュー", False))
+    translator.draft_future.result(timeout=2)
+    translator.set_draft_enabled(False)
+    translator.submit(Caption(2, 1, 2, "スキップ", False))
+    assert translator.draft_future.done()
+    translator.submit(Caption(1, 0, 2, "確定文", True))
+    translator.close()
+
+    assert len(output) == 2
+    draft, final = output
+    assert draft.translation_draft and draft.translated_source == "プレビュー"
+    assert not final.translation_draft and final.translated_source == "確定文"

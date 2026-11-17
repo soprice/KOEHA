@@ -11,6 +11,20 @@ SPEECH_VAD = "speech"
 MUSIC_VOCAL_VAD = "music-vocal"
 VAD_PROFILES = (SPEECH_VAD, MUSIC_VOCAL_VAD)
 MAX_OVERLAY_DELAY = 3600
+OVERLAY_FLOW_SMART_DUAL = "smart_dual"
+OVERLAY_FLOW_COMMITTED = "committed"
+OVERLAY_FLOW_LIVE_SINGLE = "live_single"
+OVERLAY_TIMING_MODES = (
+    OVERLAY_FLOW_SMART_DUAL,
+    OVERLAY_FLOW_COMMITTED,
+    OVERLAY_FLOW_LIVE_SINGLE,
+    "immediate",
+    "delayed",
+)
+OVERLAY_LIVE_OFF = "off"
+OVERLAY_LIVE_RAW = "raw"
+OVERLAY_LIVE_FULL = "full"
+OVERLAY_LIVE_MODES = (OVERLAY_LIVE_OFF, OVERLAY_LIVE_RAW, OVERLAY_LIVE_FULL)
 
 
 @dataclass
@@ -58,7 +72,15 @@ class Settings:
     transcript_layout: str = "dual"
     vad_profile: str = SPEECH_VAD
     overlay_timing: str = "immediate"
+    overlay_live_mode: str = OVERLAY_LIVE_FULL
     overlay_delay_seconds: float = 2.0
+    overlay_wait_seconds: float = 2.5
+    overlay_min_display_seconds: float = 1.5
+    overlay_auto_hide_seconds: float = 8.0
+    overlay_fit_width: bool = True
+    overlay_max_width: int = 900
+    overlay_auto_open: bool = False
+    overlay_click_through: bool = False
 
     @property
     def vad_voice_threshold(self) -> float:
@@ -98,10 +120,20 @@ class Settings:
             raise ValueError("Unknown delivery mode")
         if self.vad_profile not in VAD_PROFILES:
             raise ValueError("Unknown voice detection profile")
-        if self.overlay_timing not in {"immediate", "delayed"}:
+        if self.overlay_timing not in OVERLAY_TIMING_MODES:
             raise ValueError("Unknown floating caption timing mode")
+        if self.overlay_live_mode not in OVERLAY_LIVE_MODES:
+            raise ValueError("Unknown floating caption live preview mode")
         if not 0 <= self.overlay_delay_seconds <= MAX_OVERLAY_DELAY:
             raise ValueError("Invalid floating caption delay")
+        if not 0 <= self.overlay_wait_seconds <= 15:
+            raise ValueError("Invalid floating caption translation wait limit")
+        if not 0.5 <= self.overlay_min_display_seconds <= 10:
+            raise ValueError("Invalid floating caption minimum reading time")
+        if not 0 <= self.overlay_auto_hide_seconds <= 60:
+            raise ValueError("Invalid floating caption auto-hide delay")
+        if not 300 <= self.overlay_max_width <= 1600:
+            raise ValueError("Floating caption max width must be between 300 and 1600 pixels")
         if self.source not in {"system", "microphone"}:
             raise ValueError("Unknown audio source")
         if not 1 <= self.chunk_seconds <= 30 or not 1 <= self.max_seconds <= 30:
