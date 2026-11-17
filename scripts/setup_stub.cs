@@ -15,8 +15,8 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("KOEHA Live Speech & Translation Studio Installer and Uninstaller")]
 [assembly: AssemblyCompany("KOEHA")]
 [assembly: AssemblyProduct("KOEHA")]
-[assembly: AssemblyVersion("0.2.4.0")]
-[assembly: AssemblyFileVersion("0.2.4.0")]
+[assembly: AssemblyVersion("0.2.5.0")]
+[assembly: AssemblyFileVersion("0.2.5.0")]
 
 namespace KoehaSetup
 {
@@ -341,7 +341,7 @@ namespace KoehaSetup
                 {
                     if (key == null) return;
                     key.SetValue("DisplayName", "KOEHA");
-                    key.SetValue("DisplayVersion", "0.2.4");
+                    key.SetValue("DisplayVersion", "0.2.5");
                     key.SetValue("Publisher", "KOEHA");
                     key.SetValue("DisplayIcon", installedExe);
                     key.SetValue("InstallLocation", targetDir);
@@ -861,7 +861,7 @@ try { [IO.Directory]::Delete([IO.Path]::GetDirectoryName($exe), $false) } catch 
             Controls.Add(titleLabel);
 
             Label subtitleLabel = new Label();
-            subtitleLabel.Text = "Install KOEHA v0.2.4 for your Windows account. Models and settings stay in LocalAppData\\KOEHA.";
+            subtitleLabel.Text = "Install KOEHA v0.2.5 for your Windows account. Models and settings stay in LocalAppData\\KOEHA.";
             subtitleLabel.UseMnemonic = false;
             subtitleLabel.ForeColor = Color.FromArgb(168, 178, 196);
             subtitleLabel.AutoSize = false;
