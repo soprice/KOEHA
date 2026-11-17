@@ -140,6 +140,11 @@ class SettingsPage:
             self.connections.save_credentials()
             language_changed = self.controller.settings.ui_language != settings.ui_language
             self.controller.save(settings)
+            self.controller.set_draft_translation(settings.draft_translation)
+            if hasattr(self, "overlay_editor"):
+                self.overlay_editor.sync_settings(self.controller.settings)
+            if hasattr(self, "overlay_playback"):
+                self.overlay_playback.configure(**self.overlay_playback_config())
             self.connections.committed()
             self.prompt_profiles.committed()
             self.banner.hide()

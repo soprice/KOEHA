@@ -175,3 +175,40 @@ def test_cpu_recognition_is_announced_once(app, tmp_path, monkeypatch):
 def test_gpu_and_native_runtimes_show_no_notice(app, tmp_path, monkeypatch):
     assert run_session(app, tmp_path, monkeypatch, "cuda") == []
     assert run_session(app, tmp_path, monkeypatch, "") == []
+
+
+def test_draft_toggle_during_recognizer_startup_applies_to_the_session(app, tmp_path, monkeypatch):
+    initializing, release = threading.Event(), threading.Event()
+    draft_states = []
+
+    class Decoder:
+        device = "cuda"
+
+        def __init__(self, *args):
+            initializing.set()
+            assert release.wait(3)
+
+        def close(self):
+            pass
+
+    def capture(*args):
+        draft_states.append(controller._translator.draft_enabled)
+        return iter(())
+
+    monkeypatch.setenv("KOEHA_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("koeha.app.controller.is_ready", lambda *_: True)
+    monkeypatch.setattr("koeha.app.controller.Recognizer", Decoder)
+    monkeypatch.setattr("koeha.app.controller.VoiceDetector", lambda *_, **__: None)
+    monkeypatch.setattr("koeha.app.controller.capture", capture)
+    controller = Controller()
+
+    controller.start()
+    try:
+        assert initializing.wait(3)
+        controller.set_draft_translation(False)
+    finally:
+        release.set()
+        controller.thread.join(3)
+
+    assert not controller.thread.is_alive()
+    assert draft_states == [False]

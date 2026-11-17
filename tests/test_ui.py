@@ -103,9 +103,11 @@ def test_preview_updates_keep_the_draft_translation(studio):
     assert "สวัสดี" in studio.translated.toPlainText()
     studio.on_caption(Caption(1, 0, 3, "こんにちは。", True))
     assert "สวัสดี" in studio.translated.toPlainText()
+    assert studio.lines[1].translation_draft and studio.lines[1].translated_source == "こん"
     studio.on_caption(Caption(1, 0, 3, "こんにちは。", True, "สวัสดีครับ"))
     assert "สวัสดีครับ" in studio.translated.toPlainText()
     assert studio.lines[1].translation == "สวัสดีครับ"
+    assert not studio.lines[1].translation_draft and studio.lines[1].translated_source == "こんにちは。"
 
 
 def test_unreadable_settings_fall_back_to_defaults(app, tmp_path, monkeypatch):

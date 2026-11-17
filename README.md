@@ -37,7 +37,7 @@
 | **Live transcription** | Capture system playback, a running desktop application, or a microphone and recognize speech locally. |
 | **Two delivery modes** | See revisable text in Live Preview or output completed segments in Finalized Chunks. |
 | **Optional translation** | Save connection profiles for LM Studio, Ollama, or an OpenAI-compatible API. Choose an independent translation style and add scene context or a glossary. |
-| **Floating subtitles** | Customize fonts, original/translation colors, text outlines, and background borders in a movable overlay. |
+| **FloaSub floating subtitles** | Show finalized subtitles and live drafts in Smart Dual, or select an ordered or instant single-slot flow. Customize the appearance of the movable overlay. |
 | **Sessions & exports** | Keep local transcript history and export TXT, JSON, SRT, or VTT. |
 | **English & Thai** | Choose either interface language and switch between Side by side, Stacked, and Original only transcript layouts. |
 
@@ -200,16 +200,19 @@ system prompt and sends the result as the API's `system` message. Each request
 sends up to four earlier finalized subtitles in the source language as reference.
 The final `user` message contains the subtitle to translate. Choose **Translation
 style** during a Live session to apply it to new translation requests. Requests
-already submitted finish with the style they started with.
+already submitted keep their original style. Final translation requests run one at
+a time in submission order. Optional draft translations run separately so live
+previews can update while the final queue is busy.
 
 ## Caption appearance
 
-Use **Overlay Studio → Caption timing** to choose how floating captions update.
-**Immediate** shows the latest caption, including live previews. **Delayed** buffers
-finalized captions for the configured number of seconds and shows them in order,
-with at least 1.5 seconds per caption. If translation is still pending when a caption
-appears, KOEHA shows the original and adds the translation if it arrives while that
-caption is visible. You can change timing during a session.
+Use **Overlay → Playback → Subtitle flow** to choose how floating captions update.
+**Smart Dual** displays finalized subtitles in the main panel and ongoing speech in
+a separate live strip. **Committed Only** displays finalized captions in order.
+**Live Single** shows live and finalized captions in one slot. Use **Wait for
+translation**, **Minimum reading time**, **Sync delay**, and **Auto-hide on silence**
+to tune playback. When the wait expires, the original can appear while translation
+is pending, and the translation can update the caption while it remains visible.
 
 Open **Overlay** to adjust the text and see each change in the preview:
 
@@ -220,7 +223,7 @@ Open **Overlay** to adjust the text and see each change in the preview:
 
 Click a color swatch to open the picker, or enter a HEX color directly. Appearance
 changes apply to the floating captions immediately and are saved automatically.
-See the **[caption appearance guide](docs/CAPTION_STYLE.md)** for all controls.
+See the [FloaSub guide](docs/FLOASUB.md) and the [caption appearance guide](docs/CAPTION_STYLE.md).
 
 ## Recognition models
 

@@ -43,7 +43,7 @@ def test_slow_draft_cannot_replace_final(monkeypatch):
     assert len(output) == 1 and output[0].final
 
 
-def test_close_cancels_queued_translations_after_grace(monkeypatch):
+def test_close_cancels_unfinished_translations_in_order_after_grace(monkeypatch):
     monkeypatch.setattr("koeha.translation.translator.get_key", lambda _: "")
     started = threading.Event()
     release = threading.Event()
@@ -59,11 +59,17 @@ def test_close_cancels_queued_translations_after_grace(monkeypatch):
         for index in range(1, 6):
             translator.submit(Caption(index, 0, 1, "こんにちは", True))
         assert started.wait(5)
+        first, _ = next(iter(translator.final_jobs.values()))
         began = time.monotonic()
         translator.close(grace=.2)
         assert time.monotonic() - began < 2
-        cancelled = [c for c in output if "cancelled" in c.translation_error]
-        assert {c.id for c in cancelled} == {2, 3, 4, 5}
+        assert not translator.client.is_closed
+        translator.close(grace=0)
+        assert [c.id for c in output] == [1, 2, 3, 4, 5]
+        assert all("cancelled" in c.translation_error for c in output)
+        release.set()
+        first.result(timeout=3)
+        assert [c.id for c in output] == [1, 2, 3, 4, 5]
     finally:
         release.set()
         if not translator.closed:
@@ -110,6 +116,61 @@ def test_live_style_switch_snapshots_requests(monkeypatch):
             {"role": "assistant", "content": "I will use these as reference only."},
             {"role": "user", "content": subtitle},
         ]
+
+
+def test_translator_tags_draft_vs_final_source_and_honors_live_draft_toggle(monkeypatch):
+    monkeypatch.setattr("koeha.translation.translator.get_key", lambda _: "")
+    output = []
+    translator = Translator(Settings(target="th", translation_model="test"), output.append, list().append)
+    translator.client.close()
+    translator.client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"choices": [{"message": {"content": "คำแปล"}}]})
+        )
+    )
+    translator.submit(Caption(1, 0, 1, "プレビュー", False))
+    translator.draft_future.result(timeout=2)
+    translator.set_draft_enabled(False)
+    translator.submit(Caption(2, 1, 2, "スキップ", False))
+    assert translator.draft_future.done()
+    translator.submit(Caption(1, 0, 2, "確定文", True))
+    translator.close()
+
+    assert len(output) == 2
+    draft, final = output
+    assert draft.translation_draft and draft.translated_source == "プレビュー"
+    assert not final.translation_draft and final.translated_source == "確定文"
+
+
+def test_reenabling_drafts_does_not_publish_a_request_invalidated_by_disabling(monkeypatch):
+    monkeypatch.setattr("koeha.translation.translator.get_key", lambda _: "")
+    started, release = threading.Event(), threading.Event()
+    output, errors = [], []
+    translator = Translator(Settings(target="th", translation_model="test"), output.append, errors.append)
+    translator.client.close()
+
+    def respond(request):
+        started.set()
+        assert release.wait(3)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "translated"}}]})
+
+    translator.client = httpx.Client(transport=httpx.MockTransport(respond))
+    try:
+        translator.submit(Caption(1, 0, 1, "old draft", False))
+        assert started.wait(3)
+        translator.set_draft_enabled(False)
+        translator.set_draft_enabled(True)
+        release.set()
+        translator.draft_future.result(timeout=3)
+        assert not output
+
+        translator.submit(Caption(1, 0, 2, "fresh draft", False))
+        translator.draft_future.result(timeout=3)
+        assert len(output) == 1 and output[0].translated_source == "fresh draft"
+        assert not errors
+    finally:
+        release.set()
+        translator.close()
 
 
 def test_preview_and_final_requests_use_only_recent_final_source_as_reference(monkeypatch):

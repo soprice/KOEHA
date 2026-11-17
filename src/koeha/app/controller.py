@@ -46,6 +46,8 @@ class Controller(QObject):
         self.generation = ""
         self._session_settings = None
         self._translation_prompt = None
+        self._translator = None
+        self._draft_lock = threading.Lock()
 
     @staticmethod
     def _load_settings(path):
@@ -184,6 +186,11 @@ class Controller(QObject):
                 # The session still runs; the banner explains why captions may fall behind.
                 self.error.emit(CPU_NOTICE)
             translator = Translator(settings, emit, self.error.emit)
+            with self._draft_lock:
+                self._translator = translator
+                active = self._session_settings
+                if active is not None and active.draft_translation != settings.draft_translation:
+                    translator.set_draft_enabled(active.draft_translation)
             def recognized(caption):
                 emit(caption)
                 translator.submit(caption, system_prompt=self._translation_prompt)
@@ -211,7 +218,9 @@ class Controller(QObject):
             if decoder:
                 decoder.close()
             self.pipeline = None
-            self._session_settings = None
+            with self._draft_lock:
+                self._translator = None
+                self._session_settings = None
             self._translation_prompt = None
             self.level.emit(0)
             self.status.emit("Ready")
@@ -223,6 +232,13 @@ class Controller(QObject):
         if settings is not None:
             self._translation_prompt = translation_instruction(replace(
                 settings, prompt_profile=profile.id, prompt_profiles=[profile]))
+
+    def set_draft_translation(self, enabled):
+        with self._draft_lock:
+            if self._session_settings is not None:
+                self._session_settings = replace(self._session_settings, draft_translation=bool(enabled))
+            if self._translator is not None:
+                self._translator.set_draft_enabled(enabled)
 
     def stop(self):
         self.status.emit("Stopping; finishing the last audio window")

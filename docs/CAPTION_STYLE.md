@@ -1,6 +1,8 @@
 # Caption appearance
 
-Open **Overlay** in the sidebar. The preview and floating window use the same text
+For FloaSub subtitle flows, live-draft behavior, fit-width pill sizing, and the hover toolbar, see [FloaSub floating subtitles](FLOASUB.md).
+
+Open **Overlay** in the sidebar. The inspector groups controls into **Playback**, **Layout**, and **Typography**. The preview and floating window use the same text
 renderer, so the selected colors, outlines, and spacing carry through to captions.
 Click **Show / hide overlay** to compare them. While no session is running, opening
 the overlay from this page displays the sample text.
@@ -35,4 +37,4 @@ bottom of the inspector confirms when saving finishes. Appearance changes do not
 restart recognition or apply uncommitted model selections from other pages.
 
 In narrow windows the inspector moves below the preview. Scroll down to reach the
-background and display controls.
+category tabs and their controls.

@@ -11,6 +11,23 @@ SPEECH_VAD = "speech"
 MUSIC_VOCAL_VAD = "music-vocal"
 VAD_PROFILES = (SPEECH_VAD, MUSIC_VOCAL_VAD)
 MAX_OVERLAY_DELAY = 3600
+OVERLAY_FLOW_SMART_DUAL = "smart_dual"
+OVERLAY_FLOW_COMMITTED = "committed"
+OVERLAY_FLOW_LIVE_SINGLE = "live_single"
+OVERLAY_TIMING_MODES = (
+    OVERLAY_FLOW_SMART_DUAL,
+    OVERLAY_FLOW_COMMITTED,
+    OVERLAY_FLOW_LIVE_SINGLE,
+)
+OVERLAY_LIVE_OFF = "off"
+OVERLAY_LIVE_RAW = "raw"
+OVERLAY_LIVE_FULL = "full"
+OVERLAY_LIVE_MODES = (OVERLAY_LIVE_OFF, OVERLAY_LIVE_RAW, OVERLAY_LIVE_FULL)
+
+
+def _from_fields(model_cls, raw: dict):
+    """Instantiate a dataclass from a JSON dict while ignoring unknown fields from other branches."""
+    return model_cls(**{key: value for key, value in raw.items() if key in model_cls.__dataclass_fields__})
 
 
 @dataclass
@@ -58,8 +75,16 @@ class Settings:
     sidebar_collapsed: bool = False
     transcript_layout: str = "dual"
     vad_profile: str = SPEECH_VAD
-    overlay_timing: str = "immediate"
-    overlay_delay_seconds: float = 2.0
+    overlay_timing: str = OVERLAY_FLOW_SMART_DUAL
+    overlay_live_mode: str = OVERLAY_LIVE_FULL
+    overlay_delay_seconds: float = 0.0
+    overlay_wait_seconds: float = 2.5
+    overlay_min_display_seconds: float = 1.5
+    overlay_auto_hide_seconds: float = 8.0
+    overlay_fit_width: bool = True
+    overlay_max_width: int = 900
+    overlay_auto_open: bool = False
+    overlay_click_through: bool = False
 
     @property
     def vad_voice_threshold(self) -> float:
@@ -99,10 +124,20 @@ class Settings:
             raise ValueError("Unknown delivery mode")
         if self.vad_profile not in VAD_PROFILES:
             raise ValueError("Unknown voice detection profile")
-        if self.overlay_timing not in {"immediate", "delayed"}:
+        if self.overlay_timing not in OVERLAY_TIMING_MODES:
             raise ValueError("Unknown floating caption timing mode")
+        if self.overlay_live_mode not in OVERLAY_LIVE_MODES:
+            raise ValueError("Unknown floating caption live preview mode")
         if not 0 <= self.overlay_delay_seconds <= MAX_OVERLAY_DELAY:
             raise ValueError("Invalid floating caption delay")
+        if not 0 <= self.overlay_wait_seconds <= 15:
+            raise ValueError("Invalid floating caption translation wait limit")
+        if not 0.5 <= self.overlay_min_display_seconds <= 10:
+            raise ValueError("Invalid floating caption minimum reading time")
+        if not 0 <= self.overlay_auto_hide_seconds <= 60:
+            raise ValueError("Invalid floating caption auto-hide delay")
+        if not 300 <= self.overlay_max_width <= 1600:
+            raise ValueError("Floating caption max width must be between 300 and 1600 pixels")
         if self.source not in {"system", "microphone", "application"}:
             raise ValueError("Unknown audio source")
         if not isinstance(self.application_path, str):
@@ -137,18 +172,23 @@ class Settings:
             prompts = data["prompt_profiles"]
             if not isinstance(prompts, list) or any(not isinstance(p, dict) for p in prompts):
                 raise ValueError("Invalid prompt profiles")
-            data["prompt_profiles"] = [PromptProfile(**(shared | p)) for p in prompts]
+            data["prompt_profiles"] = [_from_fields(PromptProfile, shared | p) for p in prompts]
         else:
             data["prompt_profiles"] = [replace(p, **shared) for p in default_prompt_profiles()]
         if "translation_profiles" in data:
             profiles = data["translation_profiles"]
             if not isinstance(profiles, list) or any(not isinstance(p, dict) for p in profiles):
                 raise ValueError("Invalid connection profiles")
-            # Profiles saved by the SSH tunnel preview still load as direct connections.
-            for profile in profiles:
-                profile.pop("ssh_user", None)
-            data["translation_profiles"] = [ConnectionProfile(**p) for p in profiles]
-        result = cls(**{key: value for key, value in data.items() if key in cls.__dataclass_fields__})
+            data["translation_profiles"] = [_from_fields(ConnectionProfile, p) for p in profiles]
+        # Migrate pre-FloaSub timing modes ("immediate" / "delayed").
+        legacy_timing = data.get("overlay_timing")
+        if legacy_timing == "delayed":
+            data["overlay_timing"] = OVERLAY_FLOW_COMMITTED
+        elif legacy_timing == "immediate":
+            data["overlay_timing"] = OVERLAY_FLOW_SMART_DUAL
+            if "overlay_wait_seconds" not in data:
+                data["overlay_delay_seconds"] = 0.0
+        result = _from_fields(cls, data)
         result.validate()
         if result.translation_profile:
             active = next(p for p in result.translation_profiles if p.id == result.translation_profile)

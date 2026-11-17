@@ -68,17 +68,47 @@ def merge_caption(previous, caption):
     """Combine recognizer and translator updates for one utterance without regressing either.
 
     Previews arrive without a translation and draft translations arrive for an older preview,
-    so each update keeps the newest text and the latest known translation.
+    so each update keeps the newest text and the latest known translation while tracking whether
+    the translation is still a draft and which source text produced it.
     """
     if previous is None:
+        if caption.translation and not caption.final:
+            return replace(
+                caption,
+                translation_draft=True,
+                translated_source=caption.translated_source or caption.text,
+            )
+        if caption.translation and not caption.translated_source:
+            return replace(caption, translated_source=caption.text)
         return caption
     if previous.final and not caption.final:
         return None
     if not caption.final and previous.end > caption.end:
-        return replace(previous, translation=caption.translation or previous.translation)
+        if caption.translation or caption.translation_error:
+            return replace(
+                previous,
+                translation=caption.translation or previous.translation,
+                translation_error=caption.translation_error or previous.translation_error,
+                translation_draft=not previous.final if caption.translation else previous.translation_draft,
+                translated_source=(
+                    (caption.translated_source or caption.text)
+                    if caption.translation
+                    else previous.translated_source
+                ),
+            )
+        return previous
     if not caption.translation and not caption.translation_error:
-        return replace(caption, translation=previous.translation)
-    return caption
+        return replace(
+            caption,
+            translation=previous.translation,
+            translation_draft=bool(previous.translation) and (previous.translation_draft or not previous.final),
+            translated_source=previous.translated_source or (previous.text if previous.translation else ""),
+        )
+    return replace(
+        caption,
+        translation_draft=caption.translation_draft or not caption.final,
+        translated_source=caption.translated_source or caption.text,
+    )
 
 
 class LivePage:
@@ -478,7 +508,11 @@ class LivePage:
             self.banner.hide()
             self.lines.clear()
             self.overlay_playback.reset()
-            self.show_overlay_caption("", "")
+            self.overlay_playback.configure(**self.overlay_playback_config())
+            self.overlay.set_caption("", "")
+            if self.controller.settings.overlay_auto_open and not self.overlay.isVisible():
+                self.overlay.show()
+                self.overlay_button.setChecked(True)
         else:
             self.clear_live_overlay()
             if getattr(self, "setup_was_open", False):
@@ -555,4 +589,5 @@ class LivePage:
             text.verticalScrollBar().setValue(text.verticalScrollBar().maximum())
         if visible and self.active and self.phase != "STOPPING":
             last = visible[-1]
-            self.overlay_playback.receive(incoming, last)
+            stable = self.stability[caption.id].stable if caption.id in self.stability else ""
+            self.overlay_playback.receive(caption, last, stable=stable)

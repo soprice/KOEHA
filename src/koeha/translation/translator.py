@@ -71,7 +71,7 @@ class Translator:
     def __init__(self, settings, on_caption, on_error):
         self.settings = settings
         self.system_prompt = translation_instruction(settings)
-        self.prompt_revision = 0
+        self.draft_revision = 0
         self.on_caption = on_caption
         self.on_error = on_error
         credential = "profile:" + settings.translation_profile if settings.translation_profile else settings.translation_url
@@ -85,13 +85,21 @@ class Translator:
         self.lock = threading.Lock()
         self.last_committed = 0
         self.source_history = {}
-        self.pending = 0
         self.draft_future = None
         self.last_draft = 0
+        self.draft_enabled = settings.draft_translation
         self.last_error_notice = 0.0
         self.last_error_message = ""
         self.final_jobs = {}
         self.closed = False
+
+    def set_draft_enabled(self, enabled):
+        enabled = bool(enabled)
+        with self.lock:
+            if self.draft_enabled != enabled:
+                self.draft_enabled = enabled
+                self.draft_revision += 1
+                self.last_draft = 0
 
     def submit(self, caption, *, system_prompt=None):
         if self.settings.target == "off" or not caption.text:
@@ -101,7 +109,7 @@ class Translator:
                 return
             if system_prompt is not None and system_prompt != self.system_prompt:
                 self.system_prompt = system_prompt
-                self.prompt_revision += 1
+                self.draft_revision += 1
                 self.last_draft = 0
             reference = tuple(text for caption_id, text in sorted(self.source_history.items())
                               if caption_id < caption.id)
@@ -111,47 +119,33 @@ class Translator:
                 self.source_history[caption.id] = caption.text
                 if len(self.source_history) > SOURCE_HISTORY_LIMIT:
                     del self.source_history[min(self.source_history)]
-                if self.pending >= 64:
+                if len(self.final_jobs) >= 64:
                     self.on_caption(replace(caption, translation_error="Translation queue is full"))
                     return
-                self.pending += 1
-            elif (not self.settings.draft_translation or caption.id <= self.last_committed or
+                job = object()
+                future = self.finals.submit(self._translate, caption, self.system_prompt, reference, job=job)
+                self.final_jobs[job] = future, caption
+            elif (not self.draft_enabled or caption.id <= self.last_committed or
                   time.monotonic() - self.last_draft < .8 or
                   (self.draft_future and not self.draft_future.done())):
                 return
             else:
                 self.last_draft = time.monotonic()
-            prompt, revision = self.system_prompt, self.prompt_revision
-            pool = self.finals if caption.final else self.drafts
-            future = pool.submit(self._translate, caption, prompt, revision, reference)
-            if caption.final:
-                self.final_jobs[future] = caption
-            else:
-                self.draft_future = future
-        if caption.final:
-            future.add_done_callback(self._forget)
-
-    def _forget(self, future):
-        with self.lock:
-            self.final_jobs.pop(future, None)
-
-    def _notify_error(self, message):
-        now = time.monotonic()
-        with self.lock:
-            if message == self.last_error_message and now - self.last_error_notice < ERROR_NOTICE_COOLDOWN:
-                return
-            self.last_error_message = message
-            self.last_error_notice = now
-        self.on_error("Translation failed: " + message)
+                self.draft_future = self.drafts.submit(
+                    self._translate, caption, self.system_prompt, reference, revision=self.draft_revision,
+                )
 
     def _draft_is_stale(self, caption, revision):
-        with self.lock:
-            return caption.id <= self.last_committed or self.closed or revision != self.prompt_revision
+        return (not self.draft_enabled or caption.id <= self.last_committed or
+                self.closed or revision != self.draft_revision)
 
-    def _translate(self, caption, prompt, revision, reference):
-        try:
-            if not caption.final and self._draft_is_stale(caption, revision):
+    def _translate(self, caption, prompt, reference, *, job=None, revision=None):
+        with self.lock:
+            if (caption.final and job not in self.final_jobs) or (
+                not caption.final and self._draft_is_stale(caption, revision)
+            ):
                 return
+        try:
             messages = [{"role": "system", "content": prompt + "\n\n" + SUBTITLE_REQUEST_INSTRUCTION}]
             if reference:
                 reference_text = "Earlier source subtitles (reference only, oldest first):\n" + json.dumps(
@@ -168,30 +162,41 @@ class Translator:
             })
             response.raise_for_status()
             text = response.json()["choices"][0]["message"]["content"].strip()
-            if caption.final:
-                with self.lock:
-                    self.last_error_message = ""
-            elif self._draft_is_stale(caption, revision):
-                return
-            self.on_caption(replace(caption, translation=text))
         except Exception as error:
             if caption.final:
                 message = request_error_message(error, self.key)
-                self.on_caption(replace(caption, translation_error=message))
-                self._notify_error(message)
-        finally:
-            if caption.final:
-                with self.lock:
-                    self.pending -= 1
+                self._finish_final(job, replace(caption, translation_error=message))
+            return
+        result = replace(caption, translation=text, translation_draft=not caption.final, translated_source=caption.text)
+        if caption.final:
+            self._finish_final(job, result)
+        else:
+            with self.lock:
+                if not self._draft_is_stale(caption, revision):
+                    self.on_caption(result)
+
+    def _finish_final(self, job, caption):
+        with self.lock:
+            if self.final_jobs.pop(job, None) is None:
+                return  # Stop already published a cancellation for this caption.
+            self.on_caption(caption)
+            message = caption.translation_error
+            now = time.monotonic()
+            if message and (message != self.last_error_message or now - self.last_error_notice >= ERROR_NOTICE_COOLDOWN):
+                self.last_error_notice = now
+                self.on_error("Translation failed: " + message)
+            self.last_error_message = message
 
     def close(self, grace=30.0):
-        """Give queued final translations a bounded time to finish, then cancel the rest."""
+        """Drain accepted finals up to the grace period and cancel unfinished results in order."""
         with self.lock:
+            if self.closed:
+                return
             self.closed = True
-            jobs = dict(self.final_jobs)
+            jobs = tuple(self.final_jobs.values())
         self.drafts.shutdown(wait=False, cancel_futures=True)
         deadline = time.monotonic() + grace
-        for future in jobs:
+        for future, _ in jobs:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -199,8 +204,32 @@ class Translator:
                 future.result(timeout=remaining)
             except Exception:
                 pass  # failures are reported by _translate; timeouts are cancelled below
+        with self.lock:
+            expired = tuple(self.final_jobs.values())
+            self.final_jobs.clear()
         self.finals.shutdown(wait=False, cancel_futures=True)
-        for future, caption in jobs.items():
-            if future.cancelled():
+        try:
+            for _, caption in expired:
                 self.on_caption(replace(caption, translation_error="Translation cancelled when the session stopped"))
-        self.client.close()
+        finally:
+            requests = [future for future, _ in expired]
+            if self.draft_future is not None:
+                requests.append(self.draft_future)
+            self._close_client_when_idle(requests)
+
+    def _close_client_when_idle(self, requests):
+        # Running HTTP calls may still be unwinding after their results have been cancelled.
+        active = {future for future in requests if not future.done()}
+        if not active:
+            self.client.close()
+            return
+
+        def finished(future):
+            with self.lock:
+                active.remove(future)
+                idle = not active
+            if idle:
+                self.client.close()
+
+        for future in tuple(active):
+            future.add_done_callback(finished)
