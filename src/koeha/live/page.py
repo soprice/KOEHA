@@ -426,6 +426,7 @@ class LivePage:
             self.banner.hide()
             self.lines.clear()
             self.overlay_playback.reset()
+            self.overlay_playback.configure(**self.overlay_playback_config())
             self.show_overlay_caption("", "")
         else:
             self.clear_live_overlay()
@@ -503,4 +504,5 @@ class LivePage:
             text.verticalScrollBar().setValue(text.verticalScrollBar().maximum())
         if visible and self.active and self.phase != "STOPPING":
             last = visible[-1]
-            self.overlay_playback.receive(incoming, last)
+            stable = self.stability[caption.id].stable if caption.id in self.stability else ""
+            self.overlay_playback.receive(caption, last, stable=stable)
