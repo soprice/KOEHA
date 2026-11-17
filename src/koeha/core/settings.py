@@ -18,8 +18,6 @@ OVERLAY_TIMING_MODES = (
     OVERLAY_FLOW_SMART_DUAL,
     OVERLAY_FLOW_COMMITTED,
     OVERLAY_FLOW_LIVE_SINGLE,
-    "immediate",
-    "delayed",
 )
 OVERLAY_LIVE_OFF = "off"
 OVERLAY_LIVE_RAW = "raw"
@@ -71,9 +69,9 @@ class Settings:
     sidebar_collapsed: bool = False
     transcript_layout: str = "dual"
     vad_profile: str = SPEECH_VAD
-    overlay_timing: str = "immediate"
+    overlay_timing: str = OVERLAY_FLOW_SMART_DUAL
     overlay_live_mode: str = OVERLAY_LIVE_FULL
-    overlay_delay_seconds: float = 2.0
+    overlay_delay_seconds: float = 0.0
     overlay_wait_seconds: float = 2.5
     overlay_min_display_seconds: float = 1.5
     overlay_auto_hide_seconds: float = 8.0
@@ -177,6 +175,14 @@ class Settings:
             for profile in profiles:
                 profile.pop("ssh_user", None)
             data["translation_profiles"] = [ConnectionProfile(**p) for p in profiles]
+        # Migrate pre-FloaSub timing modes ("immediate" / "delayed").
+        legacy_timing = data.get("overlay_timing")
+        if legacy_timing == "delayed":
+            data["overlay_timing"] = OVERLAY_FLOW_COMMITTED
+        elif legacy_timing == "immediate":
+            data["overlay_timing"] = OVERLAY_FLOW_SMART_DUAL
+            if "overlay_wait_seconds" not in data:
+                data["overlay_delay_seconds"] = 0.0
         result = cls(**{key: value for key, value in data.items() if key in cls.__dataclass_fields__})
         result.validate()
         if result.translation_profile:

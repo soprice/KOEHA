@@ -1,6 +1,7 @@
 """The Overlay Studio page and the floating caption window toggle."""
 from dataclasses import replace
 
+from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import (
     QHBoxLayout,
 )
@@ -22,6 +23,12 @@ class OverlayPage:
         page, layout = self.page("Overlay Studio", "Floating subtitles above your game, video or workspace.")
         actions = QHBoxLayout()
         actions.addWidget(label("Drag the caption window to move it. Close it here when finished.", "muted"), 1)
+        self.unlock_overlay_button = button(
+            "Unlock click-through",
+            lambda: self.overlay_editor.apply_patch({"overlay_click_through": False}),
+        )
+        self.unlock_overlay_button.setVisible(self.controller.settings.overlay_click_through)
+        actions.addWidget(self.unlock_overlay_button)
         actions.addWidget(button("Show / hide overlay", self.toggle_overlay, "primary"))
         layout.addLayout(actions)
         self.overlay_editor = OverlayStudio(self.controller.settings)
@@ -35,6 +42,13 @@ class OverlayPage:
     def update_overlay_style(self, patch):
         self.controller.settings = replace(self.controller.settings, **patch)
         self.overlay.apply_settings(self.controller.settings)
+        if hasattr(self, "unlock_overlay_button"):
+            self.unlock_overlay_button.setVisible(self.controller.settings.overlay_click_through)
+        if "draft_translation" in patch:
+            self.controller.set_draft_translation(self.controller.settings.draft_translation)
+            if hasattr(self, "drafts"):
+                with QSignalBlocker(self.drafts):
+                    self.drafts.setChecked(self.controller.settings.draft_translation)
         latest = self.lines[max(self.lines)] if self.lines and self.active and self.phase != "STOPPING" else None
         self.overlay_playback.configure(latest=latest, **self.overlay_playback_config())
         self.overlay_save_timer.start()
@@ -43,8 +57,6 @@ class OverlayPage:
         settings = self.controller.settings
         flow = normalize_flow(settings.overlay_timing)
         delay = 0.0 if flow == OVERLAY_FLOW_LIVE_SINGLE else settings.overlay_delay_seconds
-        if settings.overlay_timing == "immediate":
-            delay = 0.0
         return dict(
             delay=delay,
             flow=flow,
@@ -81,7 +93,8 @@ class OverlayPage:
         self.overlay_playback.reset()
         self.overlay.hide()
         self.overlay_button.setChecked(False)
-        self.show_overlay_caption("", "")
+        self.overlay.set_caption("", "")
+        self.overlay_editor.set_view(OverlayView())
 
     def save_overlay_style(self):
         self.overlay_save_timer.stop()

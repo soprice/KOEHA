@@ -427,7 +427,10 @@ class LivePage:
             self.lines.clear()
             self.overlay_playback.reset()
             self.overlay_playback.configure(**self.overlay_playback_config())
-            self.show_overlay_caption("", "")
+            self.overlay.set_caption("", "")
+            if self.controller.settings.overlay_auto_open and not self.overlay.isVisible():
+                self.overlay.show()
+                self.overlay_button.setChecked(True)
         else:
             self.clear_live_overlay()
             if getattr(self, "setup_was_open", False):

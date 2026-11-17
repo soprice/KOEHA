@@ -12,11 +12,11 @@ def test_delayed_overlay_shows_final_captions_in_order_and_gives_each_reading_ti
     now = 0.0
     monkeypatch.setattr(playback, "time", SimpleNamespace(monotonic=lambda: now))
     editor = studio.overlay_editor
-    editor.timing.setCurrentIndex(editor.timing.findData("delayed"))
+    editor.timing.setCurrentIndex(editor.timing.findData("committed"))
     editor.delay.setValue(2.5)
     assert studio.save_overlay_style()
     saved = Settings.load(studio.controller.root / "settings.json")
-    assert (saved.overlay_timing, saved.overlay_delay_seconds) == ("delayed", 2.5)
+    assert (saved.overlay_timing, saved.overlay_delay_seconds) == ("committed", 2.5)
     studio.on_running(True)
 
     first = Caption(1, 0, 1, "first", True)
@@ -50,16 +50,17 @@ def test_delayed_overlay_shows_final_captions_in_order_and_gives_each_reading_ti
     studio.on_running(False)
 
 
-def test_switching_to_immediate_releases_delay_and_keeps_late_translation_in_transcript(studio):
+def test_switching_to_live_single_releases_delay_and_keeps_late_translation_in_transcript(studio):
     studio.on_running(True)
     editor = studio.overlay_editor
-    editor.timing.setCurrentIndex(editor.timing.findData("delayed"))
+    editor.timing.setCurrentIndex(editor.timing.findData("committed"))
+    editor.delay.setValue(2.0)
     first = Caption(1, 0, 1, "first", True)
     studio.on_caption(first)
     studio.on_caption(Caption(2, 1, 2, "latest", False))
     assert studio.overlay_playback.pending
 
-    editor.timing.setCurrentIndex(editor.timing.findData("immediate"))
+    editor.timing.setCurrentIndex(editor.timing.findData("live_single"))
     assert studio.overlay.canvas.original == "latest"
     assert not studio.overlay_playback.pending and not studio.overlay_playback.timer.isActive()
     studio.on_caption(replace(first, translation="late translation"))
@@ -67,7 +68,7 @@ def test_switching_to_immediate_releases_delay_and_keeps_late_translation_in_tra
     assert "late translation" in studio.translated.toPlainText()
 
 
-@pytest.mark.parametrize("timing", ["immediate", "delayed"])
+@pytest.mark.parametrize("timing", ["smart_dual", "committed", "live_single"])
 @pytest.mark.parametrize("status", ["Stopping; finishing the last audio window", "Finishing pending translations"])
 def test_stopping_clears_and_hides_overlay_without_losing_late_translations(studio, monkeypatch, timing, status):
     now = 0.0
@@ -87,7 +88,7 @@ def test_stopping_clears_and_hides_overlay_without_losing_late_translations(stud
     assert not studio.overlay.isVisible() and not studio.overlay_playback.pending
     assert studio.overlay.canvas.original == studio.overlay.canvas.translation == ""
     studio.on_running(False)
-    studio.update_overlay_style({"overlay_timing": "immediate"})
+    studio.update_overlay_style({"overlay_timing": "smart_dual"})
     assert not studio.overlay.isVisible() and not studio.overlay_button.isChecked()
     assert studio.overlay.canvas.original == studio.overlay.canvas.translation == ""
     assert not studio.overlay_playback.pending and not studio.overlay_playback.timer.isActive()
