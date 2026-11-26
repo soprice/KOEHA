@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "koeha"
-version = "0.2.5"
+version = "0.2.6"
 description = "Live Speech & Translation Studio"
 requires-python = ">=3.12,<3.14"
 license = "MIT"

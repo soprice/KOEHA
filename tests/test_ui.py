@@ -403,11 +403,26 @@ def test_setup_and_uninstaller_executables_manage_app_and_downloaded_data(tmp_pa
         "/r:System.IO.Compression.FileSystem.dll", str(repo_root / "scripts/setup_stub.cs"),
     ], check=True)
 
-    target_dir = tmp_path / "Shared folder & 100%"
+    target_dir = tmp_path / "โฟลเดอร์ Share & 100%"
     data_dir = tmp_path / "LocalAppData/KOEHA"
     subprocess.run([str(setup_exe), "--silent", "--no-shortcuts", f"--target={target_dir}"], check=True)
     assert (target_dir / "KOEHA.exe").is_file()
     assert (target_dir / "Uninstall-KOEHA.exe").is_file()
+
+    # Keep the regression test independent of the user's Desktop and Start menu.
+    desktop = tmp_path / "เดสก์ท็อป"
+    desktop.mkdir()
+    subprocess.run([
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-Mta", "-Command",
+        "$ErrorActionPreference = 'Stop'\n"
+        "$core = [Reflection.Assembly]::LoadFrom($env:TEST_KOEHA_SETUP).GetType('KoehaSetup.InstallerCore')\n"
+        "$flags = [Reflection.BindingFlags]'NonPublic, Static'\n"
+        "$createShortcut = $core.GetMethod('CreateShortcut', $flags)\n"
+        "$createShortcut.Invoke($null, @($env:TEST_KOEHA_DESKTOP, $env:TEST_KOEHA_APP, $env:TEST_KOEHA_TARGET))",
+    ], env=dict(os.environ, TEST_KOEHA_SETUP=str(setup_exe), TEST_KOEHA_DESKTOP=str(desktop),
+                TEST_KOEHA_APP=str(target_dir / "KOEHA.exe"), TEST_KOEHA_TARGET=str(target_dir)),
+        check=True, timeout=30)
+    assert (desktop / "KOEHA.lnk").is_file()
 
     # Populate downloaded models, runtimes, VAD and settings
     (data_dir / "models/qwen3-asr").mkdir(parents=True)
