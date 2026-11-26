@@ -48,7 +48,7 @@ if (Test-Path -LiteralPath $uninstallerExe) {
     $regPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\KOEHA'
     New-Item -Path $regPath -Force | Out-Null
     Set-ItemProperty -Path $regPath -Name 'DisplayName' -Value 'KOEHA'
-    Set-ItemProperty -Path $regPath -Name 'DisplayVersion' -Value '0.2.5'
+    Set-ItemProperty -Path $regPath -Name 'DisplayVersion' -Value '0.2.6'
     Set-ItemProperty -Path $regPath -Name 'Publisher' -Value 'KOEHA'
     Set-ItemProperty -Path $regPath -Name 'DisplayIcon' -Value (Join-Path $appTarget 'KOEHA.exe')
     Set-ItemProperty -Path $regPath -Name 'InstallLocation' -Value $appTarget

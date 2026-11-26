@@ -6,6 +6,8 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -15,8 +17,8 @@ using Microsoft.Win32;
 [assembly: AssemblyDescription("KOEHA Live Speech & Translation Studio Installer and Uninstaller")]
 [assembly: AssemblyCompany("KOEHA")]
 [assembly: AssemblyProduct("KOEHA")]
-[assembly: AssemblyVersion("0.2.5.0")]
-[assembly: AssemblyFileVersion("0.2.5.0")]
+[assembly: AssemblyVersion("0.2.6.0")]
+[assembly: AssemblyFileVersion("0.2.6.0")]
 
 namespace KoehaSetup
 {
@@ -321,16 +323,46 @@ namespace KoehaSetup
         {
             if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return;
             string shortcutPath = Path.Combine(folder, "KOEHA.lnk");
-            Type shellType = Type.GetTypeFromProgID("WScript.Shell");
-            if (shellType == null) return;
-            object shell = Activator.CreateInstance(shellType);
-            object shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath });
-            Type scType = shortcut.GetType();
-            scType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { targetExe });
-            scType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { workingDir });
-            scType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { targetExe + ",0" });
-            scType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { "KOEHA - Live Speech & Translation Studio" });
-            scType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
+            IShellLinkW shortcut = (IShellLinkW)new ShellLink();
+            try
+            {
+                shortcut.SetPath(targetExe);
+                shortcut.SetWorkingDirectory(workingDir);
+                shortcut.SetIconLocation(targetExe, 0);
+                shortcut.SetDescription("KOEHA - Live Speech & Translation Studio");
+                ((IPersistFile)shortcut).Save(shortcutPath, true);
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(shortcut);
+            }
+        }
+
+        [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+        private class ShellLink { }
+
+        // Keep the native vtable order, including methods setup does not call.
+        [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IShellLinkW
+        {
+            void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int capacity, IntPtr findData, uint flags);
+            void GetIDList(out IntPtr idList);
+            void SetIDList(IntPtr idList);
+            void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder description, int capacity);
+            void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string description);
+            void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder directory, int capacity);
+            void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
+            void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int capacity);
+            void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string arguments);
+            void GetHotkey(out ushort hotkey);
+            void SetHotkey(ushort hotkey);
+            void GetShowCmd(out int showCommand);
+            void SetShowCmd(int showCommand);
+            void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder iconPath, int capacity, out int iconIndex);
+            void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string iconPath, int iconIndex);
+            void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string path, uint reserved);
+            void Resolve(IntPtr window, uint flags);
+            void SetPath([MarshalAs(UnmanagedType.LPWStr)] string path);
         }
 
         private static void RegisterUninstallEntry(string targetDir, string installedExe, string uninstallerExe, long installedBytes)
@@ -341,7 +373,7 @@ namespace KoehaSetup
                 {
                     if (key == null) return;
                     key.SetValue("DisplayName", "KOEHA");
-                    key.SetValue("DisplayVersion", "0.2.5");
+                    key.SetValue("DisplayVersion", "0.2.6");
                     key.SetValue("Publisher", "KOEHA");
                     key.SetValue("DisplayIcon", installedExe);
                     key.SetValue("InstallLocation", targetDir);
@@ -861,7 +893,7 @@ try { [IO.Directory]::Delete([IO.Path]::GetDirectoryName($exe), $false) } catch 
             Controls.Add(titleLabel);
 
             Label subtitleLabel = new Label();
-            subtitleLabel.Text = "Install KOEHA v0.2.5 for your Windows account. Models and settings stay in LocalAppData\\KOEHA.";
+            subtitleLabel.Text = "Install KOEHA v0.2.6 for your Windows account. Models and settings stay in LocalAppData\\KOEHA.";
             subtitleLabel.UseMnemonic = false;
             subtitleLabel.ForeColor = Color.FromArgb(168, 178, 196);
             subtitleLabel.AutoSize = false;
